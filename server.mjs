@@ -53,10 +53,18 @@ function normReasoning(v) {
   const s = String(v).trim().toLowerCase();
   return s || undefined;
 }
+const REASONING_SET = new Set(REASONING_LEVELS);
 /** Map a reasoning-effort level to the OpenRouter `reasoning` body object. */
 function reasoningBody(effort) {
-  const s = normReasoning(effort);
+  let s = normReasoning(effort);
   if (!s) return undefined;
+  if (!REASONING_SET.has(s)) {
+    // A typo'd level in a config env var would otherwise be sent verbatim and trigger an
+    // opaque provider error. Fall back to the default instead.
+    const fallback = REASONING_SET.has(DEFAULT_REASONING) ? DEFAULT_REASONING : "high";
+    console.error(`Unknown reasoning_effort "${s}" — falling back to "${fallback}".`);
+    s = fallback;
+  }
   if (s === "none") return { enabled: false }; // disable reasoning entirely
   return { effort: s }; // xhigh|high|medium|low|minimal — passed through to OpenRouter
 }
@@ -67,8 +75,8 @@ function reasoningBody(effort) {
 //   {"label":"…","description":"…","analysis_models":["…","…"],"judge":"…",
 //    "reasoning_effort":"high","temperature":0.7,"system":"…"}
 // The preset name is the <NAME> suffix lowercased (override with an explicit "name" field).
-// For forgiveness, the value may also be the bare fragment  "name":{…}  or a single-key
-// wrapper  {"name":{…}}  — both are unwrapped automatically.
+// For forgiveness, the value may also be the bare fragment  "<name>":{…}  or a single-key
+// wrapper  {"<name>":{…}}  — both are unwrapped automatically.
 function normalizePreset(c, fallbackName) {
   if (!c || typeof c !== "object") return null;
   let analysis_models = Array.isArray(c.analysis_models) ? c.analysis_models : undefined;
@@ -114,21 +122,19 @@ function parseConfigValue(key, val) {
   }
   let name = key.replace(/^OPENROUTER_FUSION_/i, "").toLowerCase();
   let cfg = parsed;
-  // Unwrap a single-key wrapper {"maths":{…}} where the inner is the real config.
-  if (
-    parsed &&
-    typeof parsed === "object" &&
-    !Array.isArray(parsed) &&
-    !parsed.analysis_models &&
-    !parsed.judge &&
-    !parsed.label &&
-    !parsed.tools &&
-    !parsed.model
-  ) {
+  // Unwrap a single-key wrapper {"<configname>":{…}} where the inner value is the real config.
+  // Discriminator: a single key whose value is itself a PLAIN OBJECT means a wrapper — unwrap it.
+  // A flat config's only field is always a scalar or array (reasoning_effort:"low",
+  // judge:"x", analysis_models:[…], temperature:0.2, …), never a plain object, so it is left
+  // as-is. This handles tuning-only inner configs AND configs whose name matches a field word.
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
     const keys = Object.keys(parsed);
-    if (keys.length === 1 && parsed[keys[0]] && typeof parsed[keys[0]] === "object") {
-      name = parsed[keys[0]].name || keys[0].toLowerCase();
-      cfg = parsed[keys[0]];
+    if (keys.length === 1) {
+      const inner = parsed[keys[0]];
+      if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+        name = inner.name || keys[0].toLowerCase();
+        cfg = inner;
+      }
     }
   }
   const np = normalizePreset(cfg, name);
@@ -184,7 +190,12 @@ function buildPresets() {
     if (RESERVED.has(key.toUpperCase())) continue;
     if (!val || !val.trim()) continue;
     const np = parseConfigValue(key, val);
-    if (np && (np.name || key)) presets[np.name || key.replace(/^OPENROUTER_FUSION_/i, "").toLowerCase()] = np;
+    if (!np) continue;
+    const finalName = np.name || key.replace(/^OPENROUTER_FUSION_/i, "").toLowerCase();
+    if (presets[finalName]) {
+      console.error(`Fusion config "${finalName}" (from ${key}) overrides an existing config of the same name.`);
+    }
+    presets[finalName] = np;
   }
 
   // Backward-compat: the legacy single-map OPENROUTER_FUSION_PRESETS.
@@ -443,8 +454,14 @@ function newJobId() {
 }
 function pruneJobs() {
   const now = Date.now();
-  for (const [id, j] of jobs) if (now - j.ts > 1800000) jobs.delete(id); // 30 min
+  for (const [id, j] of jobs) {
+    if (j.status === "running") continue; // never expire an in-flight job, even if it runs long
+    if (now - j.ts > 1800000) jobs.delete(id); // drop finished/errored jobs 30 min after completion
+  }
 }
+// Prune on a timer too, so a finished-but-never-polled job (client gave up) can't linger
+// until the next fusion_start. unref() keeps the timer from holding the process open.
+setInterval(pruneJobs, 600000).unref();
 
 server.registerTool(
   "fusion_start",
@@ -482,15 +499,36 @@ server.registerTool(
     },
   },
   async ({ prompt, preset, system, reasoning_effort, temperature, analysis_models, judge_model }) => {
+    // Resolve the config FIRST. Only default to quality when preset is omitted; a provided-but-
+    // unknown preset (typo, or a custom whose env var failed to load) is an error — never a
+    // silent fallback to the most expensive built-in.
+    const presetName = (preset || "quality").toLowerCase();
+    const cfg = PRESETS[presetName];
+    if (!cfg) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: `Unknown Fusion preset "${preset}". Available: ${Object.keys(PRESETS).join(", ")}. Call fusion_list to see them.`,
+            }),
+          },
+        ],
+      };
+    }
+
     pruneJobs();
     const id = newJobId();
     jobs.set(id, { status: "running", ts: Date.now() });
 
-    const cfg = PRESETS[(preset || "quality").toLowerCase()] || PRESETS.quality;
     const panel = analysis_models?.length ? analysis_models : cfg.analysis_models || undefined;
     const judge = judge_model || cfg.judge || undefined;
     const orch = cfg.orchestrator || undefined;
-    const oPreset = cfg.openrouter_preset || undefined;
+    // Drop the native OpenRouter preset (e.g. budget's general-budget) only when the caller
+    // overrides the PANEL — that would conflict with the preset's own panel. A judge-only
+    // override keeps the preset's panel intact (just swaps the synthesizer).
+    const oPreset = analysis_models?.length ? undefined : cfg.openrouter_preset || undefined;
     const reff = reasoning_effort != null ? reasoning_effort : cfg.reasoning_effort || DEFAULT_REASONING;
     const temp =
       typeof temperature === "number"

@@ -6,7 +6,7 @@
   "description": "Call OpenRouter Fusion (multi-model deliberation) via async fusion_start / fusion_result, with named configs (quality / budget / custom).",
   "long_description": "Exposes OpenRouter Fusion as MCP tools. fusion_list enumerates the available configs (built-in quality and budget, plus any named custom config set via OPENROUTER_FUSION_<NAME> env vars), each carrying a panel, a judge, a reasoning effort and a temperature. fusion_start runs a deliberation in the background and returns a job_id; fusion_result long-polls it. Fusion runs a panel of models in parallel, then a judge synthesizes the best answer.",
   "author": {
-    "name": "Roland"
+    "name": "tboome33"
   },
   "server": {
     "type": "node",

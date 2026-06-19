@@ -105,8 +105,10 @@ Add a **stdio** server pointing at the absolute path of `server.mjs`:
 claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- node "/absolute/path/to/server.mjs"
 ```
 
-Global slash commands (in `~/.claude/commands/`): `/fusion` & `/fusion-choose` (selector),
-`/fusion-quality`, `/fusion-budget`, `/fusion-custom <name> <question>`.
+Example global slash commands you can drop into `~/.claude/commands/` (not shipped in this repo):
+`/fusion` & `/fusion-choose` (a selector that calls `fusion_list` then runs your pick),
+`/fusion-quality`, `/fusion-budget`, `/fusion-custom <name> <question>` — each just calls
+`fusion_start` with the matching `preset` then polls `fusion_result`.
 
 ## Optional — package as a one-click `.mcpb` bundle
 
@@ -132,3 +134,4 @@ The bundle prompts the user for their OpenRouter API key on install (`user_confi
 - Fusion is billed per the panel + judge it runs — `quality` (~$0.09 on a trivial probe) costs
   more than `budget` (~$0.04). Keep the heavy configs for the cases that justify them.
 - A tool-set change only shows client-side after the connector reconnects (cached manifest); calls still hit the live server.
+- Jobs live in memory only. If the server process restarts, in-flight `job_id`s become `Unknown` — just call `fusion_start` again. Finished jobs are pruned after ~30 min (and on a background timer).

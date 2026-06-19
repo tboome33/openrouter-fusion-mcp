@@ -5,3 +5,7 @@ node_modules/
 .mcp.json
 .smart-env/
 .nas-tmp/
+.vault-meta/
+perso-config.json
+.nas-tmp-review*.txt
+.claude/settings.local.json
