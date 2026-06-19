@@ -404,10 +404,12 @@ server.registerTool(
   {
     title: "Fusion (list configs)",
     description:
-      "List the available Fusion configurations — name, label, panel (analysis_models), judge " +
-      "(orchestrator/'Fuse with'), reasoning_effort, temperature, description. Call this FIRST when " +
-      "the user asks to 'use Fusion' without naming a config: show the list, let them choose " +
-      "(quality, budget, or a custom one), then run fusion_start with preset:'<name>'.",
+      "List the available Fusion configurations — for each: name, label, panel (analysis_models), " +
+      "judge (orchestrator/'Fuse with'), reasoning_effort, temperature, description. ALWAYS call this " +
+      "FIRST whenever the user wants to use Fusion without explicitly naming a preset. Present EVERY " +
+      "preset WITH its models and its orchestrator, then ask the user to choose the preset — do NOT " +
+      "pick one for them. After they pick, ask the reasoning effort, then the temperature, then call " +
+      "fusion_start with preset:'<name>'.",
     inputSchema: {},
   },
   async () => {
@@ -469,9 +471,12 @@ server.registerTool(
     title: "Fusion (start async)",
     description:
       "Start an OpenRouter Fusion deliberation in the BACKGROUND and return a job_id immediately " +
-      "(never times out), then call fusion_result with the job_id. Pick a config with preset:'<name>' " +
-      "— call fusion_list to see them (quality, budget, + custom configs). Default: quality. " +
-      "reasoning_effort and temperature default to the config's; override per call if needed.",
+      "(never times out), then call fusion_result with the job_id. Set preset:'<name>'. IMPORTANT: do " +
+      "NOT auto-pick a preset on the user's behalf — if the user hasn't explicitly named one, call " +
+      "fusion_list first, show the presets (with models + orchestrator), and ask them to choose the " +
+      "preset, then the reasoning effort, then the temperature. (preset falls back to 'quality' only as " +
+      "a last-resort server default.) reasoning_effort and temperature default to the config's; pass " +
+      "them only when the user chose an explicit value.",
     inputSchema: {
       prompt: z.string().describe("The question or task to deliberate on."),
       preset: z

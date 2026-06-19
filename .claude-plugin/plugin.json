@@ -1,0 +1,10 @@
+{
+  "name": "openrouter-fusion",
+  "description": "OpenRouter Fusion (multi-model deliberation) MCP server + an interactive selector skill/command (pick preset → reasoning effort → temperature).",
+  "version": "2.0.0",
+  "author": { "name": "tboome33" },
+  "homepage": "https://github.com/tboome33/openrouter-fusion-mcp",
+  "repository": "https://github.com/tboome33/openrouter-fusion-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "openrouter", "fusion", "multi-model", "llm", "deliberation"]
+}

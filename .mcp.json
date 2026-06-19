@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openrouter-fusion": {
+      "command": "npx",
+      "args": ["-y", "github:tboome33/openrouter-fusion-mcp"],
+      "env": {
+        "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
+      }
+    }
+  }
+}

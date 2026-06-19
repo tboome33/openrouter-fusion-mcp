@@ -101,14 +101,35 @@ Add a **stdio** server pointing at the absolute path of `server.mjs`:
 
 ## Use with Claude Code / Claude Desktop
 
+Two ways, depending on whether you also want the interactive selector UX.
+
+### A) MCP server only
+
 ```bash
-claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- node "/absolute/path/to/server.mjs"
+claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- npx -y github:tboome33/openrouter-fusion-mcp
 ```
 
-Example global slash command you can drop into `~/.claude/commands/` (not shipped in this repo):
-a single interactive `/fusion` that calls `fusion_list`, shows every preset **with its models +
-orchestrator**, then asks you to pick a preset → choose the reasoning effort → choose the
-temperature, and finally runs `fusion_start` + polls `fusion_result`.
+You get the 3 tools. The **interactive selector behavior travels with the server via the tool
+descriptions** — when you ask to use Fusion without naming a preset, the model is told to call
+`fusion_list` and ask you to choose preset → reasoning effort → temperature (it should not auto-pick).
+This is the only layer that also works on claude.ai / Cursor / other MCP clients.
+
+### B) As a Claude Code plugin (MCP **+** skill **+** `/fusion` command)
+
+This repo is also a Claude Code **plugin** (`.claude-plugin/plugin.json`). Installing it bundles the
+MCP server (`.mcp.json`, run via npx), a model-invoked **skill** (`skills/fusion-selector`) that
+auto-triggers the selector whenever you want Fusion, and an explicit **`/fusion`** slash command.
+
+```
+/plugin marketplace add tboome33/openrouter-fusion-mcp
+/plugin install openrouter-fusion
+```
+
+Set `OPENROUTER_API_KEY` in your environment first (the plugin's `.mcp.json` reads `${OPENROUTER_API_KEY}`).
+
+> Why a plugin? Slash commands and skills do **not** travel with a plain MCP install (only tool
+> descriptions do). A plugin is what bundles the MCP server together with its command/skill so a
+> user gets the full interactive UX in one install.
 
 ## Optional — package as a one-click `.mcpb` bundle
 
