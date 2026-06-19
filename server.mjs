@@ -1,0 +1,605 @@
+#!/usr/bin/env node
+/**
+ * OpenRouter Fusion — MCP server
+ *
+ * Calls OpenRouter's Fusion (multi-model deliberation): a panel of models runs in
+ * parallel (with web search/fetch), then a judge ("Fuse with" / orchestrator) model
+ * synthesizes consensus / contradictions / unique insights / blind spots into one answer.
+ *
+ * THREE families of configs (mirrors the OpenRouter "Model Fusion" UI):
+ *   - quality : built-in frontier panel (Claude Opus + GPT + Gemini Pro), judge Opus.
+ *   - budget  : built-in — panel CHOSEN BY OPENROUTER (native preset "general-budget").
+ *   - <named> : any number of custom configs, one ENV VAR each:
+ *                 OPENROUTER_FUSION_<NAME> = {"label":..,"analysis_models":[..],"judge":..,
+ *                                            "reasoning_effort":"high","temperature":0.7,"system":..}
+ *               e.g. OPENROUTER_FUSION_MATHS, OPENROUTER_FUSION_MEDECINE, OPENROUTER_FUSION_CODE...
+ *
+ * Each config carries: analysis_models (panel) · judge (orchestrator / "Fuse with") ·
+ * reasoning_effort (xhigh|high|medium|low|minimal|none, default high) · temperature
+ * (optional — omitted = model default) · system (optional domain prompt).
+ *
+ * Tools (async-only, robust against client/proxy timeouts):
+ *   - fusion_list   : enumerate configs (name, panel, judge, reasoning, temperature).
+ *   - fusion_start  : start a deliberation in the background → job_id (never times out).
+ *   - fusion_result : long-poll a job_id (~45s/call) → synthesized answer.
+ *
+ * Docs: https://openrouter.ai/docs/guides/features/plugins/fusion
+ *       https://openrouter.ai/openrouter/fusion
+ *
+ * Auth: set OPENROUTER_API_KEY (an INFERENCE key with credit) in the environment.
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const API_KEY = process.env.OPENROUTER_API_KEY;
+
+// Default reasoning effort when a config doesn't specify one (overridable per call).
+const DEFAULT_REASONING = (process.env.OPENROUTER_FUSION_DEFAULT_REASONING || "high")
+  .trim()
+  .toLowerCase();
+
+// Built-in "quality" panel — explicit so fusion_list can display models + judge.
+const QUALITY_PANEL = ["anthropic/claude-opus-4.8", "openai/gpt-5.5", "google/gemini-3.1-pro-preview"];
+const QUALITY_JUDGE = "anthropic/claude-opus-4.8";
+
+const REASONING_LEVELS = ["xhigh", "high", "medium", "low", "minimal", "none"];
+
+// --- reasoning helpers -------------------------------------------------------
+function normReasoning(v) {
+  if (v == null) return undefined;
+  const s = String(v).trim().toLowerCase();
+  return s || undefined;
+}
+/** Map a reasoning-effort level to the OpenRouter `reasoning` body object. */
+function reasoningBody(effort) {
+  const s = normReasoning(effort);
+  if (!s) return undefined;
+  if (s === "none") return { enabled: false }; // disable reasoning entirely
+  return { effort: s }; // xhigh|high|medium|low|minimal — passed through to OpenRouter
+}
+
+// --- Preset registry: built-ins + named custom configs (one env var each) ----
+//
+// A custom config is an env var OPENROUTER_FUSION_<NAME> whose value is a JSON object:
+//   {"label":"…","description":"…","analysis_models":["…","…"],"judge":"…",
+//    "reasoning_effort":"high","temperature":0.7,"system":"…"}
+// The preset name is the <NAME> suffix lowercased (override with an explicit "name" field).
+// For forgiveness, the value may also be the bare fragment  "name":{…}  or a single-key
+// wrapper  {"name":{…}}  — both are unwrapped automatically.
+function normalizePreset(c, fallbackName) {
+  if (!c || typeof c !== "object") return null;
+  let analysis_models = Array.isArray(c.analysis_models) ? c.analysis_models : undefined;
+  let judge = c.judge || c.judge_model;
+  const orchestrator = c.orchestrator || undefined;
+  let openrouter_preset = c.openrouter_preset || c.preset || undefined;
+  if (Array.isArray(c.tools)) {
+    // Accept the OpenRouter docs shape (model/tools/parameters) too.
+    const t = c.tools.find((x) => String(x?.type || "").includes("fusion"));
+    const p = t?.parameters || {};
+    if (!analysis_models && Array.isArray(p.analysis_models)) analysis_models = p.analysis_models;
+    if (p.model) judge = judge || p.model;
+    if (p.preset) openrouter_preset = openrouter_preset || p.preset;
+  }
+  judge = judge || c.model;
+  return {
+    name: c.name || fallbackName || null,
+    label: c.label || null,
+    description: c.description || null,
+    analysis_models: analysis_models?.length ? analysis_models : null,
+    judge: judge || null,
+    orchestrator: orchestrator || null,
+    openrouter_preset: openrouter_preset || null,
+    reasoning_effort: normReasoning(c.reasoning_effort) || null,
+    temperature: typeof c.temperature === "number" ? c.temperature : null,
+    system: c.system || null,
+  };
+}
+
+/** Parse one env value into a config object, tolerating common paste shapes. */
+function parseConfigValue(key, val) {
+  let parsed;
+  try {
+    parsed = JSON.parse(val);
+  } catch {
+    // tolerate a trailing comma and the bare  "name":{…}  fragment the UI invites pasting
+    try {
+      parsed = JSON.parse("{" + val.replace(/,\s*$/, "") + "}");
+    } catch {
+      console.error(`${key} is not valid JSON — ignoring it.`);
+      return null;
+    }
+  }
+  let name = key.replace(/^OPENROUTER_FUSION_/i, "").toLowerCase();
+  let cfg = parsed;
+  // Unwrap a single-key wrapper {"maths":{…}} where the inner is the real config.
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    !parsed.analysis_models &&
+    !parsed.judge &&
+    !parsed.label &&
+    !parsed.tools &&
+    !parsed.model
+  ) {
+    const keys = Object.keys(parsed);
+    if (keys.length === 1 && parsed[keys[0]] && typeof parsed[keys[0]] === "object") {
+      name = parsed[keys[0]].name || keys[0].toLowerCase();
+      cfg = parsed[keys[0]];
+    }
+  }
+  const np = normalizePreset(cfg, name);
+  if (np && !np.reasoning_effort) np.reasoning_effort = DEFAULT_REASONING;
+  return np;
+}
+
+function buildPresets() {
+  /** @type {Record<string, any>} */
+  const presets = {};
+
+  // Built-in: Quality (frontier panel, judge Opus) — like the UI "Quality" tab.
+  presets.quality = {
+    name: "quality",
+    label: "Quality",
+    description:
+      "Panel frontier (Claude Opus + GPT + Gemini Pro), juge Opus. Comme l'onglet Quality d'OpenRouter.",
+    analysis_models: QUALITY_PANEL,
+    judge: QUALITY_JUDGE,
+    orchestrator: null,
+    openrouter_preset: null,
+    reasoning_effort: DEFAULT_REASONING,
+    temperature: null,
+    system: null,
+  };
+
+  // Built-in: Budget (panel CHOSEN BY OPENROUTER via native preset) — like the UI "Budget" tab.
+  presets.budget = {
+    name: "budget",
+    label: "Budget",
+    description:
+      "Panel économique CHOISI PAR OPENROUTER (preset natif general-budget). Comme l'onglet Budget.",
+    analysis_models: null,
+    judge: null,
+    orchestrator: null,
+    openrouter_preset: "general-budget",
+    reasoning_effort: "medium",
+    temperature: null,
+    system: null,
+  };
+
+  // Named custom configs — one env var each: OPENROUTER_FUSION_<NAME>.
+  const RESERVED = new Set([
+    "OPENROUTER_FUSION_PRESETS",
+    "OPENROUTER_FUSION_PERSO_CONFIG",
+    "OPENROUTER_FUSION_PERSO_PANEL",
+    "OPENROUTER_FUSION_PERSO_JUDGE",
+    "OPENROUTER_FUSION_PERSO_ORCHESTRATOR",
+    "OPENROUTER_FUSION_DEFAULT_REASONING",
+  ]);
+  for (const [key, val] of Object.entries(process.env)) {
+    if (!/^OPENROUTER_FUSION_/i.test(key)) continue;
+    if (RESERVED.has(key.toUpperCase())) continue;
+    if (!val || !val.trim()) continue;
+    const np = parseConfigValue(key, val);
+    if (np && (np.name || key)) presets[np.name || key.replace(/^OPENROUTER_FUSION_/i, "").toLowerCase()] = np;
+  }
+
+  // Backward-compat: the legacy single-map OPENROUTER_FUSION_PRESETS.
+  const rawMap = process.env.OPENROUTER_FUSION_PRESETS;
+  if (rawMap) {
+    try {
+      const m = JSON.parse(rawMap);
+      for (const [n, c] of Object.entries(m)) {
+        const np = normalizePreset(c, n);
+        if (np) {
+          if (!np.reasoning_effort) np.reasoning_effort = DEFAULT_REASONING;
+          presets[n] = np;
+        }
+      }
+    } catch {
+      console.error("OPENROUTER_FUSION_PRESETS is not valid JSON — ignoring it.");
+    }
+  }
+
+  // Backward-compat: legacy perso config → preset "perso" (if not already defined).
+  if (!presets.perso && process.env.OPENROUTER_FUSION_PERSO_CONFIG) {
+    const np = parseConfigValue("OPENROUTER_FUSION_PERSO", process.env.OPENROUTER_FUSION_PERSO_CONFIG);
+    if (np) {
+      np.name = "perso";
+      np.label = np.label || "Perso";
+      presets.perso = np;
+    }
+  }
+
+  return presets;
+}
+const PRESETS = buildPresets();
+
+/**
+ * Call OpenRouter Fusion and return the synthesized final answer as text.
+ *
+ * @param {object} opts
+ * @param {string}    opts.prompt            The user question.
+ * @param {string=}   opts.system            Optional system prompt.
+ * @param {number=}   opts.temperature       Optional sampling temperature (omit = model default).
+ * @param {boolean=}  opts.force             tool_choice "required" to force deliberation.
+ * @param {string[]=} opts.analysis_models   Custom panel (Fusion plugin).
+ * @param {string=}   opts.judge_model       Custom judge / orchestrator ("Fuse with") model.
+ * @param {string=}   opts.orchestrator      Outer model (server-tool form). Usually null.
+ * @param {string=}   opts.reasoning_effort  xhigh|high|medium|low|minimal|none.
+ * @param {string=}   opts.openrouter_preset Native OpenRouter fusion preset (e.g. general-budget).
+ * @returns {Promise<string>}
+ */
+async function callFusion({
+  prompt,
+  system,
+  temperature,
+  force,
+  analysis_models,
+  judge_model,
+  orchestrator,
+  reasoning_effort,
+  openrouter_preset,
+}) {
+  if (!API_KEY) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not set. Add an inference key (with credit) to the MCP server environment before calling Fusion."
+    );
+  }
+
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  messages.push({ role: "user", content: prompt });
+
+  /** @type {Record<string, unknown>} */
+  const body = { messages };
+  if (typeof temperature === "number") body.temperature = temperature;
+  const reasoning = reasoningBody(reasoning_effort);
+  if (reasoning) body.reasoning = reasoning;
+
+  if (orchestrator) {
+    // Server-tool form: a custom outer model writes the final answer using fusion analysis.
+    body.model = orchestrator;
+    const params = {};
+    if (analysis_models && analysis_models.length) params.analysis_models = analysis_models;
+    if (judge_model) params.model = judge_model;
+    if (openrouter_preset) params.preset = openrouter_preset;
+    body.tools = [{ type: "openrouter:fusion", parameters: params }];
+    if (force) body.tool_choice = "required";
+  } else {
+    // Alias form: openrouter/fusion resolves an outer model; the judge synthesizes.
+    body.model = "openrouter/fusion";
+    if (force) body.tool_choice = "required";
+    const fusion = { id: "fusion" };
+    let hasCfg = false;
+    if (analysis_models && analysis_models.length) {
+      fusion.analysis_models = analysis_models;
+      hasCfg = true;
+    }
+    if (judge_model) {
+      fusion.model = judge_model;
+      hasCfg = true;
+    }
+    if (openrouter_preset) {
+      fusion.preset = openrouter_preset;
+      hasCfg = true;
+    }
+    if (hasCfg) body.plugins = [fusion];
+  }
+
+  // One request attempt. Throws { retryable, msg } so the loop can retry transient 429/5xx.
+  const attemptOnce = async () => {
+    let res;
+    try {
+      res = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://github.com/mcphub",
+          "X-Title": process.env.OPENROUTER_SITE_NAME || "OpenRouter Fusion MCP",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw { retryable: true, msg: `Network error contacting OpenRouter: ${e?.message || e}` };
+    }
+    const raw = await res.text();
+    if (!res.ok) {
+      throw {
+        retryable: res.status === 429 || res.status >= 500,
+        msg: `OpenRouter returned ${res.status} ${res.statusText}: ${raw.slice(0, 600)}`,
+      };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw { retryable: false, msg: `Could not parse OpenRouter response as JSON: ${raw.slice(0, 2000)}` };
+    }
+    // HTTP 200 can still embed an error (panel/judge model rate-limited, etc.).
+    const embErr = parsed?.error || parsed?.choices?.[0]?.error;
+    if (embErr) {
+      const code = embErr.code;
+      const etype = embErr.metadata?.error_type || "";
+      const mdl = parsed?.model || "";
+      const retryable =
+        code === 429 || etype === "rate_limit_exceeded" || (typeof code === "number" && code >= 500);
+      throw {
+        retryable,
+        msg: `Fusion provider error ${code}${etype ? " " + etype : ""}${mdl ? " on " + mdl : ""}: ${
+          embErr.message || ""
+        }`.trim(),
+      };
+    }
+    return parsed;
+  };
+
+  let data;
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      data = await attemptOnce();
+      break;
+    } catch (err) {
+      const e =
+        err && typeof err === "object" && "msg" in err
+          ? err
+          : { retryable: false, msg: String(err?.message || err) };
+      if (e.retryable && attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, attempt * 4000)); // 4s, then 8s backoff
+        continue;
+      }
+      throw new Error(e.msg);
+    }
+  }
+
+  const choice = data?.choices?.[0]?.message;
+  let answer = "";
+  if (typeof choice?.content === "string") {
+    answer = choice.content;
+  } else if (Array.isArray(choice?.content)) {
+    answer = choice.content.map((p) => (typeof p === "string" ? p : p?.text || "")).join("");
+  }
+  if (!answer) answer = JSON.stringify(data, null, 2);
+
+  // Compact usage/cost footer when available.
+  const u = data?.usage;
+  if (u) {
+    const parts = [];
+    if (u.prompt_tokens != null) parts.push(`in ${u.prompt_tokens}`);
+    if (u.completion_tokens != null) parts.push(`out ${u.completion_tokens}`);
+    if (u.total_tokens != null) parts.push(`total ${u.total_tokens}`);
+    if (u.cost != null) parts.push(`$${u.cost}`);
+    if (parts.length) answer += `\n\n---\n_Fusion usage — ${parts.join(" · ")}_`;
+  }
+
+  return answer;
+}
+
+const server = new McpServer({
+  name: "openrouter-fusion",
+  version: "2.0.0",
+});
+
+// ---------------------------------------------------------------------------
+// fusion_list — enumerate configs so the caller (or user) can pick one.
+// ---------------------------------------------------------------------------
+server.registerTool(
+  "fusion_list",
+  {
+    title: "Fusion (list configs)",
+    description:
+      "List the available Fusion configurations — name, label, panel (analysis_models), judge " +
+      "(orchestrator/'Fuse with'), reasoning_effort, temperature, description. Call this FIRST when " +
+      "the user asks to 'use Fusion' without naming a config: show the list, let them choose " +
+      "(quality, budget, or a custom one), then run fusion_start with preset:'<name>'.",
+    inputSchema: {},
+  },
+  async () => {
+    const list = Object.entries(PRESETS).map(([name, p]) => ({
+      preset: name,
+      label: p.label || name,
+      description: p.description || "",
+      panel: p.analysis_models || (p.openrouter_preset ? `(choisi par OpenRouter: ${p.openrouter_preset})` : "(défaut Quality OpenRouter)"),
+      judge: p.judge || (p.openrouter_preset ? "(choisi par OpenRouter)" : "(défaut)"),
+      orchestrator: p.orchestrator || null,
+      reasoning_effort: p.reasoning_effort || DEFAULT_REASONING,
+      temperature: p.temperature == null ? "(défaut modèle)" : p.temperature,
+    }));
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              presets: list,
+              usage: "Lance fusion_start avec preset:'<nom>' puis poll fusion_result.",
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Async job pattern — survives short CLIENT-side / proxy tool-call timeouts.
+// Fusion takes minutes; many MCP clients (and proxies that don't forward
+// progress) cut the request at ~60s. So we run the deliberation in the
+// background and let the caller poll: fusion_start -> job_id, fusion_result -> answer.
+// ---------------------------------------------------------------------------
+const jobs = new Map(); // id -> { status:'running'|'done'|'error', result?, error?, ts }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let jobSeq = 0;
+function newJobId() {
+  jobSeq = (jobSeq + 1) % 1e6;
+  return "fj_" + jobSeq.toString(36) + "_" + Math.random().toString(36).slice(2, 8);
+}
+function pruneJobs() {
+  const now = Date.now();
+  for (const [id, j] of jobs) if (now - j.ts > 1800000) jobs.delete(id); // 30 min
+}
+
+server.registerTool(
+  "fusion_start",
+  {
+    title: "Fusion (start async)",
+    description:
+      "Start an OpenRouter Fusion deliberation in the BACKGROUND and return a job_id immediately " +
+      "(never times out), then call fusion_result with the job_id. Pick a config with preset:'<name>' " +
+      "— call fusion_list to see them (quality, budget, + custom configs). Default: quality. " +
+      "reasoning_effort and temperature default to the config's; override per call if needed.",
+    inputSchema: {
+      prompt: z.string().describe("The question or task to deliberate on."),
+      preset: z
+        .string()
+        .optional()
+        .describe("Config name from fusion_list (quality, budget, or a custom one). Default: quality."),
+      system: z.string().optional().describe("Optional system instruction (overrides the config's)."),
+      reasoning_effort: z
+        .enum(REASONING_LEVELS)
+        .optional()
+        .describe("Override reasoning effort. Default: config's (quality/custom=high, budget=medium)."),
+      temperature: z
+        .number()
+        .min(0)
+        .max(2)
+        .optional()
+        .describe("Override sampling temperature. Default: config's (usually the model default)."),
+      analysis_models: z
+        .array(z.string())
+        .min(1)
+        .max(8)
+        .optional()
+        .describe("Override the config's panel."),
+      judge_model: z.string().optional().describe("Override the config's judge/orchestrator."),
+    },
+  },
+  async ({ prompt, preset, system, reasoning_effort, temperature, analysis_models, judge_model }) => {
+    pruneJobs();
+    const id = newJobId();
+    jobs.set(id, { status: "running", ts: Date.now() });
+
+    const cfg = PRESETS[(preset || "quality").toLowerCase()] || PRESETS.quality;
+    const panel = analysis_models?.length ? analysis_models : cfg.analysis_models || undefined;
+    const judge = judge_model || cfg.judge || undefined;
+    const orch = cfg.orchestrator || undefined;
+    const oPreset = cfg.openrouter_preset || undefined;
+    const reff = reasoning_effort != null ? reasoning_effort : cfg.reasoning_effort || DEFAULT_REASONING;
+    const temp =
+      typeof temperature === "number"
+        ? temperature
+        : typeof cfg.temperature === "number"
+        ? cfg.temperature
+        : undefined;
+
+    callFusion({
+      prompt,
+      system: system || cfg.system || undefined,
+      temperature: temp,
+      force: true,
+      analysis_models: panel,
+      judge_model: judge,
+      orchestrator: orch,
+      reasoning_effort: reff,
+      openrouter_preset: oPreset,
+    }).then(
+      (text) => jobs.set(id, { status: "done", result: text, ts: Date.now() }),
+      (err) => jobs.set(id, { status: "error", error: String(err?.message || err), ts: Date.now() })
+    );
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            job_id: id,
+            status: "running",
+            preset: cfg.name || preset || "quality",
+            next:
+              "Call fusion_result with this job_id. It long-polls up to ~45s and returns the answer when ready, or status 'running' (then call it again).",
+          }),
+        },
+      ],
+    };
+  }
+);
+
+server.registerTool(
+  "fusion_result",
+  {
+    title: "Fusion (fetch async result)",
+    description:
+      "Fetch the result of a fusion_start job. Long-polls up to ~45s: returns the synthesized " +
+      "answer when ready, or {status:'running'} (call again with the same job_id). Fast per call, " +
+      "so it never hits the client timeout.",
+    inputSchema: {
+      job_id: z.string().describe("The job_id returned by fusion_start."),
+    },
+  },
+  async ({ job_id }) => {
+    const deadline = Date.now() + 45000;
+    for (;;) {
+      const j = jobs.get(job_id);
+      if (!j) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: JSON.stringify({ error: "Unknown or expired job_id." }) }],
+        };
+      }
+      if (j.status === "done") {
+        jobs.delete(job_id);
+        return { content: [{ type: "text", text: j.result }] };
+      }
+      if (j.status === "error") {
+        jobs.delete(job_id);
+        return { isError: true, content: [{ type: "text", text: j.error }] };
+      }
+      if (Date.now() >= deadline) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                status: "running",
+                job_id,
+                next: "Not ready yet — call fusion_result again with the same job_id.",
+              }),
+            },
+          ],
+        };
+      }
+      await sleep(2000);
+    }
+  }
+);
+
+// Diagnostic: `FUSION_DUMP_PRESETS=1 node server.mjs` prints the resolved configs and exits
+// (before connecting, so stdout is free). Handy to verify env-var configs on the host.
+if (process.env.FUSION_DUMP_PRESETS) {
+  const summary = Object.fromEntries(
+    Object.entries(PRESETS).map(([n, p]) => [
+      n,
+      {
+        label: p.label,
+        panel: p.analysis_models || (p.openrouter_preset ? `openrouter:${p.openrouter_preset}` : "(default)"),
+        judge: p.judge || (p.openrouter_preset ? "(openrouter)" : "(default)"),
+        reasoning_effort: p.reasoning_effort,
+        temperature: p.temperature,
+      },
+    ])
+  );
+  process.stdout.write(JSON.stringify({ count: Object.keys(PRESETS).length, presets: summary }, null, 2) + "\n");
+  process.exit(0);
+}
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+// stderr is safe for logs; stdout is reserved for the MCP protocol.
+console.error("openrouter-fusion MCP server v2 running on stdio");

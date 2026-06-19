@@ -1,0 +1,21 @@
+{
+  "name": "openrouter-fusion-mcp",
+  "version": "2.0.0",
+  "description": "MCP server exposing OpenRouter Fusion via async fusion_list/fusion_start/fusion_result with named configs (quality/budget/custom) — multi-model deliberation for high-stakes answers.",
+  "type": "module",
+  "bin": {
+    "openrouter-fusion-mcp": "server.mjs"
+  },
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0"
+  },
+  "license": "MIT"
+}

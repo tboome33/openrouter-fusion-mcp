@@ -1,0 +1,36 @@
+{
+  "manifest_version": "0.1",
+  "name": "openrouter-fusion",
+  "display_name": "OpenRouter Fusion",
+  "version": "2.0.0",
+  "description": "Call OpenRouter Fusion (multi-model deliberation) via async fusion_start / fusion_result, with named configs (quality / budget / custom).",
+  "long_description": "Exposes OpenRouter Fusion as MCP tools. fusion_list enumerates the available configs (built-in quality and budget, plus any named custom config set via OPENROUTER_FUSION_<NAME> env vars), each carrying a panel, a judge, a reasoning effort and a temperature. fusion_start runs a deliberation in the background and returns a job_id; fusion_result long-polls it. Fusion runs a panel of models in parallel, then a judge synthesizes the best answer.",
+  "author": {
+    "name": "Roland"
+  },
+  "server": {
+    "type": "node",
+    "entry_point": "server.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server.mjs"],
+      "env": {
+        "OPENROUTER_API_KEY": "${user_config.openrouter_api_key}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "fusion_list", "description": "List the available Fusion configs (panel, judge, reasoning, temperature)." },
+    { "name": "fusion_start", "description": "Start a Fusion deliberation in the background; returns a job_id." },
+    { "name": "fusion_result", "description": "Long-poll a fusion_start job_id for the synthesized answer." }
+  ],
+  "user_config": {
+    "openrouter_api_key": {
+      "type": "string",
+      "title": "OpenRouter API Key",
+      "description": "Your OpenRouter API key (sk-or-...). Get one at https://openrouter.ai/keys",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}
