@@ -105,10 +105,10 @@ Add a **stdio** server pointing at the absolute path of `server.mjs`:
 claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- node "/absolute/path/to/server.mjs"
 ```
 
-Example global slash commands you can drop into `~/.claude/commands/` (not shipped in this repo):
-`/fusion` & `/fusion-choose` (a selector that calls `fusion_list` then runs your pick),
-`/fusion-quality`, `/fusion-budget`, `/fusion-custom <name> <question>` — each just calls
-`fusion_start` with the matching `preset` then polls `fusion_result`.
+Example global slash command you can drop into `~/.claude/commands/` (not shipped in this repo):
+a single interactive `/fusion` that calls `fusion_list`, shows every preset **with its models +
+orchestrator**, then asks you to pick a preset → choose the reasoning effort → choose the
+temperature, and finally runs `fusion_start` + polls `fusion_result`.
 
 ## Optional — package as a one-click `.mcpb` bundle
 
