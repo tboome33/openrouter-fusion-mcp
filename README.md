@@ -122,7 +122,7 @@ auto-triggers the selector whenever you want Fusion, and an explicit **`/fusion`
 
 ```
 /plugin marketplace add tboome33/openrouter-fusion-mcp
-/plugin install openrouter-fusion
+/plugin install openrouter-fusion@tboome33
 ```
 
 Set `OPENROUTER_API_KEY` in your environment first (the plugin's `.mcp.json` reads `${OPENROUTER_API_KEY}`).

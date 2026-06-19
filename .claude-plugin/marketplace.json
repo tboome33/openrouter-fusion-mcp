@@ -1,0 +1,12 @@
+{
+  "name": "tboome33",
+  "owner": { "name": "tboome33" },
+  "plugins": [
+    {
+      "name": "openrouter-fusion",
+      "source": "./",
+      "description": "OpenRouter Fusion (multi-model deliberation) MCP server + an interactive selector skill and /fusion command (pick preset → reasoning effort → temperature).",
+      "category": "ai"
+    }
+  ]
+}
