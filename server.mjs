@@ -42,11 +42,12 @@ const DEFAULT_REASONING = (process.env.OPENROUTER_FUSION_DEFAULT_REASONING || "h
   .toLowerCase();
 
 // Cap on the panel/judge web_search/web_fetch loop (OpenRouter range 1-16, their default 8).
-// We default LOWER (3): it bounds web steps so models "must return text", which both cuts cost and
-// avoids the failure where the judge keeps tool-calling and never emits a final synthesis.
+// Default 8 (= OpenRouter's). It's a CEILING, not a floor: models only use what they need, so a high
+// cap costs nothing when unused. IMPORTANT: do NOT set this very low (e.g. 1) — it starves a
+// "hungry" judge like Opus mid-loop and it returns NO final text (content:null). Verified 2026-06-19.
 const DEFAULT_MAX_TOOL_CALLS = (() => {
   const n = parseInt(process.env.OPENROUTER_FUSION_MAX_TOOL_CALLS || "", 10);
-  return Number.isFinite(n) && n >= 1 && n <= 16 ? n : 3;
+  return Number.isFinite(n) && n >= 1 && n <= 16 ? n : 8;
 })();
 
 const REASONING_LEVELS = ["xhigh", "high", "medium", "low", "minimal", "none"];
