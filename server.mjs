@@ -432,6 +432,17 @@ server.registerTool(
     inputSchema: {},
   },
   async () => {
+    // Rough RELATIVE cost tier from panel composition (a precise $ would mislead — real cost
+    // scales with prompt size, reasoning effort and web usage). Frontier slugs = pricey.
+    const isFrontier = (m) => /opus|gpt-5|gemini-3\.1-pro|gemini-pro|grok|\bo3\b|sonnet/i.test(m || "");
+    const costTier = (p) => {
+      if (p.openrouter_preset) return "€ (éco · choisi par OpenRouter)";
+      const models = [...(p.analysis_models || []), p.judge].filter(Boolean);
+      const n = models.filter(isFrontier).length;
+      if (n === 0) return "€ (éco)";
+      if (n <= 2) return "€€ (moyen)";
+      return "€€€ (cher)";
+    };
     const list = Object.entries(PRESETS).map(([name, p]) => ({
       preset: name,
       label: p.label || name,
@@ -442,6 +453,7 @@ server.registerTool(
       reasoning_effort: p.reasoning_effort || DEFAULT_REASONING,
       temperature: p.temperature == null ? "(défaut modèle)" : p.temperature,
       max_tool_calls: p.max_tool_calls == null ? DEFAULT_MAX_TOOL_CALLS : p.max_tool_calls,
+      cost_tier: costTier(p),
     }));
     return {
       content: [
@@ -450,7 +462,11 @@ server.registerTool(
           text: JSON.stringify(
             {
               presets: list,
-              usage: "Lance fusion_start avec preset:'<nom>' puis poll fusion_result.",
+              usage:
+                "Présente la liste AVEC le cost_tier, fais choisir le preset → reasoning → température, " +
+                "puis lance fusion_start puis poll fusion_result. cost_tier = indicateur RELATIF " +
+                "(€/€€/€€€) ; le coût réel monte avec la taille du prompt, le reasoning et l'usage web " +
+                "(un run lourd peut dépasser 0,50–1 $).",
             },
             null,
             2

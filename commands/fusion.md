@@ -8,8 +8,13 @@ user's answer** after each question (don't chain ahead).
 
 **1. List the configs.** Call **`fusion_list`**. Present EVERY preset returned as a readable numbered
 list, showing for each: the **name** + label, the **panel of models** (`panel`), the
-**orchestrator/judge** (`judge`, the "Fuse with"), and the default `reasoning_effort`. Include all
-presets (typically: Quality, Budget, maths, medecine, code, code-eco, perso).
+**orchestrator/judge** (`judge`, the "Fuse with"), the default `reasoning_effort`, and the
+**`cost_tier`** (€ / €€ / €€€) so the user chooses cost-aware. Include all presets (typically:
+Quality, Budget, maths, medecine, code, code-eco, perso). Note `cost_tier` is RELATIVE — real cost
+scales with prompt size, reasoning effort and web usage.
+
+> `fusion_start` is gated by a permission confirmation in Claude Code (the user approves each paid
+> launch). You don't manage it — the harness prompts.
 
 **2. Ask for the preset** (number or name), then **WAIT**. (If the user already named one in the
 request, skip this.)

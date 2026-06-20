@@ -19,7 +19,9 @@ When the user wants to use OpenRouter Fusion but has **not** explicitly named a 
    - the **name** + label,
    - the **panel of models** (`panel` / analysis_models),
    - the **orchestrator / judge** (`judge`, the "Fuse with" model),
-   - the default `reasoning_effort`.
+   - the default `reasoning_effort`,
+   - the **`cost_tier`** (€ / €€ / €€€) so the user picks cost-aware (it's RELATIVE — real cost
+     scales with prompt size, reasoning effort and web usage).
 
    Include all presets (typically: Quality, Budget, maths, medecine, code, code-eco, perso).
 
