@@ -2,7 +2,7 @@
   "openrouter-fusion": {
     "name": "openrouter-fusion",
     "display_name": "OpenRouter Fusion",
-    "description": "Multi-model deliberation 'rescue' answers via OpenRouter Fusion: a panel of models answers in parallel (with web search/fetch), then a judge synthesizes consensus, contradictions and blind spots into one best answer. Named configs (Quality / Budget / Custom) with per-config reasoning effort & temperature; an async start/poll flow so long deliberations never hit a client timeout.",
+    "description": "Multi-model deliberation for high-stakes answers via OpenRouter Fusion: a panel of models answers in parallel (with web search/fetch), then a judge (Opus) synthesizes consensus, contradictions and blind spots into one best answer. Ships named presets (quality, budget, research, research-eco, maths, medecine, code) with per-config reasoning effort / temperature / web-loop cap, a live per-preset cost estimate from OpenRouter prices, and an async start/poll flow so long deliberations never hit a client timeout.",
     "repository": {
       "type": "git",
       "url": "https://github.com/tboome33/openrouter-fusion-mcp"
@@ -24,18 +24,20 @@
       "deliberation",
       "ensemble",
       "judge",
-      "async"
+      "research",
+      "async",
+      "cost-estimate"
     ],
     "examples": [
       {
-        "title": "List the available configs",
-        "description": "Show every Fusion config (quality, budget, and any custom ones) with its panel, judge, reasoning effort and temperature.",
-        "prompt": "List the available Fusion configs."
+        "title": "List the configs with their cost",
+        "description": "Show every Fusion preset (quality, budget, research, …) with its panel, judge, reasoning effort and estimated cost range, then pick one.",
+        "prompt": "List the available Fusion configs with their estimated cost."
       },
       {
-        "title": "Start a quality deliberation",
-        "description": "Run the frontier panel (Opus + GPT + Gemini, judge Opus) in the background and get a job id.",
-        "prompt": "Use Fusion (quality) to explain the trade-offs between ridge, lasso and elastic net."
+        "title": "Start a deep-research deliberation",
+        "description": "Run the diversified frontier panel (Opus + GPT + Gemini Pro + DeepSeek, judged by Opus) in the background and get a job id.",
+        "prompt": "Use Fusion (research) to assess whether 'CRSI' is a real, substantiated concept or an empty buzzword."
       },
       {
         "title": "Fetch the result",
@@ -54,7 +56,7 @@
         "env": {
           "OPENROUTER_API_KEY": "${OPENROUTER_API_KEY}"
         },
-        "description": "Runs server.mjs straight from the public GitHub repo via npx (no npm publish required). Custom configs are added as extra OPENROUTER_FUSION_<NAME> env vars."
+        "description": "Runs server.mjs straight from the public GitHub repo via npx (no npm publish required). Presets 'quality' and 'budget' work out-of-the-box; the custom presets (research, research-eco, maths, medecine, code) are added as extra OPENROUTER_FUSION_<NAME> env vars — paste-ready values are in the repo's fusion-env-vars.json."
       }
     },
     "arguments": {
@@ -63,10 +65,10 @@
         "required": true,
         "example": "sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       },
-      "OPENROUTER_FUSION_CODE": {
-        "description": "Optional. A named custom config, as a JSON object. One env var per config: OPENROUTER_FUSION_<NAME> registers a config named <name>. Built-in configs 'quality' and 'budget' need no env var. Fields: analysis_models (panel), judge (orchestrator), reasoning_effort (xhigh|high|medium|low|minimal|none), temperature (null = model default), optional system.",
+      "OPENROUTER_FUSION_RESEARCH": {
+        "description": "Optional. A named custom config, as a JSON object. One env var per config: OPENROUTER_FUSION_<NAME> registers a config named <name>. Built-in configs 'quality' and 'budget' need no env var. Fields: analysis_models (panel), judge (orchestrator), reasoning_effort (xhigh|high|medium|low|minimal|none), temperature (null = model default), max_tool_calls (1-16, caps the web loop; default 8), optional system. More ready-made presets (research-eco, maths, medecine, code) are in the repo's fusion-env-vars.json.",
         "required": false,
-        "example": "{\"name\":\"code\",\"label\":\"Code\",\"analysis_models\":[\"z-ai/glm-5.2\",\"anthropic/claude-opus-4.8\",\"openai/gpt-5.5\",\"deepseek/deepseek-v4-pro\"],\"judge\":\"anthropic/claude-opus-4.8\",\"reasoning_effort\":\"high\",\"temperature\":null}"
+        "example": "{\"name\":\"research\",\"analysis_models\":[\"~anthropic/claude-opus-latest\",\"openai/gpt-5.5\",\"~google/gemini-pro-latest\",\"deepseek/deepseek-v4-pro\"],\"judge\":\"~anthropic/claude-opus-latest\",\"reasoning_effort\":\"high\",\"temperature\":null,\"max_tool_calls\":8}"
       },
       "OPENROUTER_FUSION_DEFAULT_REASONING": {
         "description": "Optional. Global default reasoning effort applied to any config that doesn't set its own. Defaults to 'high'.",
@@ -77,7 +79,7 @@
     "tools": [
       {
         "name": "fusion_list",
-        "description": "List the available Fusion configs (name, label, panel, judge, reasoning_effort, temperature, description). Call this first when the user wants to use Fusion but hasn't picked a config.",
+        "description": "List the available Fusion configs — each with name, label, panel, judge, reasoning_effort, temperature, max_tool_calls, a relative cost_tier (€/€€/€€€) and a cost_estimate {low, high, usd_per_prompt_token} computed from live OpenRouter prices. Call this FIRST when the user wants Fusion but hasn't named a config: present them, recommend one, and let the user pick.",
         "inputSchema": {
           "type": "object",
           "properties": {}
@@ -85,7 +87,7 @@
       },
       {
         "name": "fusion_start",
-        "description": "Start an OpenRouter Fusion deliberation in the background and return a job_id immediately (never times out). Pick a config with preset:'<name>' (default: quality). reasoning_effort and temperature default to the config's; override per call.",
+        "description": "Start an OpenRouter Fusion deliberation in the background and return a job_id immediately (never times out). Pick a config with preset:'<name>' (default: quality). reasoning_effort, temperature and max_tool_calls default to the config's; override per call.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -122,6 +124,12 @@
             "judge_model": {
               "type": "string",
               "description": "Override the config's judge/orchestrator model."
+            },
+            "max_tool_calls": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16,
+              "description": "Cap the panel/judge web-search loop. Default 8; do not set very low (e.g. 1) or a hungry judge can end on a tool call with no final text."
             }
           },
           "required": ["prompt"]
@@ -141,6 +149,7 @@
           "required": ["job_id"]
         }
       }
-    ]
+    ],
+    "is_official": false
   }
 }
