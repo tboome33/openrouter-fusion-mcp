@@ -7,6 +7,12 @@
     "openrouter-fusion-mcp": "server.mjs"
   },
   "main": "server.mjs",
+  "files": [
+    "server.mjs",
+    "fusion-presets.json",
+    "fusion-env-vars.json",
+    ".env.example"
+  ],
   "scripts": {
     "start": "node server.mjs"
   },
