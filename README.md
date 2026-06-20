@@ -197,8 +197,11 @@ Set your key via the client's `env`, or copy `.env.example` → `.env` (`OPENROU
 #### A) MCP server only (any client)
 
 ```bash
-claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- npx -y github:tboome33/openrouter-fusion-mcp
+claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- npx -y openrouter-fusion-mcp
 ```
+
+> Bleeding edge: replace `openrouter-fusion-mcp` with `github:tboome33/openrouter-fusion-mcp` to run the
+> latest unreleased `master` instead of the published npm version.
 
 You get the 3 tools. The selector behavior **travels with the server via the tool descriptions** — asked to
 use Fusion without a named preset, the model is told to call `fusion_list` and make you pick. This is the only
@@ -394,8 +397,11 @@ Mets ta clé via l'`env` du client, ou copie `.env.example` → `.env` (`OPENROU
 #### A) Serveur MCP seul (tout client)
 
 ```bash
-claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- npx -y github:tboome33/openrouter-fusion-mcp
+claude mcp add openrouter-fusion -e OPENROUTER_API_KEY=sk-or-... -- npx -y openrouter-fusion-mcp
 ```
+
+> Version de pointe : remplace `openrouter-fusion-mcp` par `github:tboome33/openrouter-fusion-mcp` pour
+> lancer le dernier `master` non publié plutôt que la version npm.
 
 Tu obtiens les 3 tools. Le comportement du sélecteur **voyage avec le serveur via les descriptions de tools** —
 sollicité pour Fusion sans preset nommé, le modèle est instruit d'appeler `fusion_list` et de te faire choisir.
