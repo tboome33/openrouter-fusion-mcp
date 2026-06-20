@@ -124,11 +124,19 @@ descriptions** — when you ask to use Fusion without naming a preset, the model
 `fusion_list` and ask you to choose preset → reasoning effort → temperature (it should not auto-pick).
 This is the only layer that also works on claude.ai / Cursor / other MCP clients.
 
-### B) As a Claude Code plugin (MCP **+** skill **+** `/fusion` command)
+### B) As a Claude Code plugin (MCP **+** skill **+** command **+** cost-gate hook)
 
 This repo is also a Claude Code **plugin** (`.claude-plugin/plugin.json`). Installing it bundles the
-MCP server (`.mcp.json`, run via npx), a model-invoked **skill** (`skills/fusion-selector`) that
-auto-triggers the selector whenever you want Fusion, and an explicit **`/fusion`** slash command.
+full behavior — **everything travels with the plugin**, no per-user config:
+
+- the **MCP server** (`.mcp.json`, run via npx),
+- a model-invoked **skill** (`skills/fusion-selector`) that auto-triggers the selector whenever you
+  want Fusion → it lists every preset **with its cost tier**, recommends one, and makes you pick
+  (preset → reasoning effort → temperature) before running,
+- an explicit **`/fusion`** slash command (same flow),
+- a **PreToolUse hook** (`hooks/hooks.json` → `hooks/fusion-gate.mjs`) that **deterministically asks
+  you to confirm before every paid `fusion_start`** (showing the preset) — the backstop in case the
+  model ever skips the selector.
 
 ```
 /plugin marketplace add tboome33/openrouter-fusion-mcp

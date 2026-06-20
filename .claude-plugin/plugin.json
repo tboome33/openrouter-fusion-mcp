@@ -1,6 +1,6 @@
 {
   "name": "openrouter-fusion",
-  "description": "OpenRouter Fusion (multi-model deliberation) MCP server + an interactive selector skill/command (pick preset → reasoning effort → temperature).",
+  "description": "OpenRouter Fusion (multi-model deliberation) MCP server + an interactive selector skill/command (list presets with cost → recommend → pick → reasoning → temperature) + a PreToolUse hook that confirms before every paid run.",
   "version": "2.0.0",
   "author": { "name": "tboome33" },
   "homepage": "https://github.com/tboome33/openrouter-fusion-mcp",
