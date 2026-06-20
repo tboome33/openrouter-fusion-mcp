@@ -240,6 +240,84 @@ function buildPresets() {
 }
 const PRESETS = buildPresets();
 
+// ---- Cost estimation (rough RANGE — the panel's web/output tokens dominate and aren't visible
+// before the run, so this is a ballpark, not a quote). Uses live OpenRouter prices, cached 1h. ----
+let _priceCache = null; // populated only on a successful fetch
+let _priceCacheTs = 0; // ts of last SUCCESS (1 h freshness)
+let _priceTryTs = 0; // ts of last attempt (throttle retries when offline)
+let _pricePromise = null; // in-flight fetch, de-duped across concurrent callers
+async function getPrices() {
+  const now = Date.now();
+  if (_priceCache && now - _priceCacheTs < 3600000) return _priceCache; // fresh
+  if (_pricePromise) return _pricePromise; // a fetch is already running → reuse it
+  if (now - _priceTryTs < 60000) return _priceCache; // cooled down after a recent attempt → stale/null (no re-hit)
+  _priceTryTs = now;
+  _pricePromise = (async () => {
+    try {
+      // Bounded so fusion_list never hangs on a slow/unreachable endpoint — falls back to static ranges.
+      const res = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {},
+        signal: AbortSignal.timeout(2500),
+      });
+      const j = await res.json();
+      const map = {};
+      for (const m of Array.isArray(j?.data) ? j.data : []) {
+        if (m && m.id && m.pricing) {
+          map[m.id] = { in: parseFloat(m.pricing.prompt) || 0, out: parseFloat(m.pricing.completion) || 0 };
+        }
+      }
+      if (Object.keys(map).length) {
+        _priceCache = map;
+        _priceCacheTs = Date.now();
+      }
+    } catch {
+      // keep stale/null on failure — estimate falls back to static ranges
+    }
+    return _priceCache;
+  })();
+  try {
+    return await _pricePromise;
+  } finally {
+    _pricePromise = null;
+  }
+}
+
+// Heuristic token volumes, calibrated so research (4 frontier + Opus judge, web 8) ≈ the observed
+// ~$1 ceiling. Olo/Ohi = panel output low/high; Jlo/Jhi = judge output; WEB = web tokens per tool call.
+const EST = { Olo: 500, Ohi: 1500, Jlo: 1000, Jhi: 2500, WEB: 6000 };
+/** Estimate a config's per-run cost RANGE (USD) + per-prompt-token factor. */
+function estimateCostUSD(cfg, prices) {
+  const M = cfg.max_tool_calls || DEFAULT_MAX_TOOL_CALLS;
+  const panel = cfg.analysis_models && cfg.analysis_models.length ? cfg.analysis_models : null;
+  if (!prices || !panel) {
+    // openrouter_preset / built-ins have no explicit panel → static fallback ranges.
+    if (cfg.openrouter_preset && /budget|eco|flash|mini|cheap/i.test(cfg.openrouter_preset))
+      return { low: 0.05, high: 0.3, perToken: 6e-6 };
+    return { low: 0.1, high: 0.7, perToken: 16e-6 }; // frontier-ish default (e.g. quality)
+  }
+  // Look up by exact slug, then by the de-aliased slug (price map may key the resolved id without the
+  // leading "~"), then assume frontier if still unknown — keeps the estimate stable if an alias drifts.
+  const pr = (id) => prices[id] || prices[(id || "").replace(/^~/, "")] || { in: 5e-6, out: 25e-6 };
+  const J = pr(cfg.judge);
+  let perToken = J.in;
+  let low = 0;
+  let high = 0;
+  let panelOutLo = 0;
+  let panelOutHi = 0;
+  for (const id of panel) {
+    const p = pr(id);
+    perToken += p.in;
+    low += EST.Olo * p.out;
+    high += M * EST.WEB * p.in + EST.Ohi * p.out;
+    panelOutLo += EST.Olo;
+    panelOutHi += EST.Ohi;
+  }
+  low += panelOutLo * J.in + EST.Jlo * J.out;
+  high += (panelOutHi + M * EST.WEB) * J.in + EST.Jhi * J.out;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return { low: r2(low), high: r2(high), perToken };
+}
+
 /**
  * Call OpenRouter Fusion and return the synthesized final answer as text.
  *
@@ -454,18 +532,24 @@ server.registerTool(
       if (n <= 2) return "€€ (moyen)";
       return "€€€ (cher)";
     };
-    const list = Object.entries(PRESETS).map(([name, p]) => ({
-      preset: name,
-      label: p.label || name,
-      description: p.description || "",
-      panel: p.analysis_models || (p.openrouter_preset ? `(choisi par OpenRouter: ${p.openrouter_preset})` : "(défaut Quality OpenRouter)"),
-      judge: p.judge || (p.openrouter_preset ? "(choisi par OpenRouter)" : "(défaut)"),
-      orchestrator: p.orchestrator || null,
-      reasoning_effort: p.reasoning_effort || DEFAULT_REASONING,
-      temperature: p.temperature == null ? "(défaut modèle)" : p.temperature,
-      max_tool_calls: p.max_tool_calls == null ? DEFAULT_MAX_TOOL_CALLS : p.max_tool_calls,
-      cost_tier: costTier(p),
-    }));
+    const prices = await getPrices();
+    const list = Object.entries(PRESETS).map(([name, p]) => {
+      const e = estimateCostUSD(p, prices);
+      return {
+        preset: name,
+        label: p.label || name,
+        description: p.description || "",
+        panel: p.analysis_models || (p.openrouter_preset ? `(choisi par OpenRouter: ${p.openrouter_preset})` : "(défaut Quality OpenRouter)"),
+        judge: p.judge || (p.openrouter_preset ? "(choisi par OpenRouter)" : "(défaut)"),
+        orchestrator: p.orchestrator || null,
+        reasoning_effort: p.reasoning_effort || DEFAULT_REASONING,
+        temperature: p.temperature == null ? "(défaut modèle)" : p.temperature,
+        max_tool_calls: p.max_tool_calls == null ? DEFAULT_MAX_TOOL_CALLS : p.max_tool_calls,
+        cost_tier: costTier(p),
+        // Per-run estimate RANGE (USD) + per-prompt-token factor so a client can add the prompt cost live.
+        cost_estimate: { low: e.low, high: e.high, usd_per_prompt_token: e.perToken },
+      };
+    });
     return {
       content: [
         {

@@ -6,12 +6,13 @@ argument-hint: [your question]
 Drive OpenRouter Fusion **interactively**. Follow these steps **in order**, stopping to **wait for the
 user's answer** after each question (don't chain ahead).
 
-**1. List the configs.** Call **`fusion_list`**. Present EVERY preset returned as a readable numbered
-list, showing for each: the **name** + label, the **panel of models** (`panel`), the
-**orchestrator/judge** (`judge`, the "Fuse with"), the default `reasoning_effort`, and the
-**`cost_tier`** (€ / €€ / €€€) so the user chooses cost-aware. Include all presets (typically:
-Quality, Budget, maths, medecine, code, code-eco, perso). Note `cost_tier` is RELATIVE — real cost
-scales with prompt size, reasoning effort and web usage.
+**1. List the configs.** Call **`fusion_list`**. Present EVERY preset returned as a **full TABLE** (one
+row per preset; columns: **#**, **preset**, **est. cost** `~$low–$high` (from `cost_estimate.low`/`.high`),
+**panel**, **judge/orchestrator**, **`reasoning_effort`**). **ALWAYS render this full table at the moment
+you ask the user to choose** — even if you showed it earlier, and even when you recommend one: **never
+reduce it to just the recommendation**. The cost is an estimated RANGE per run (floor = little web,
+ceiling = full `max_tool_calls` web budget); real cost also scales with prompt size (each preset's
+`cost_estimate.usd_per_prompt_token`) and reasoning effort. State it's indicative, not a quote.
 
 > `fusion_start` is gated by a permission confirmation in Claude Code (the user approves each paid
 > launch). You don't manage it — the harness prompts.

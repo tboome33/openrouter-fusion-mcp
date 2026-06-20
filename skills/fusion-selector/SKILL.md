@@ -14,16 +14,14 @@ description: >-
 When the user wants to use OpenRouter Fusion but has **not** explicitly named a preset, drive this
 **interactive** flow. Stop and **wait for the user's answer** after each question — never chain ahead.
 
-1. **List the configs.** Call **`fusion_list`**. Present **every** preset returned as a readable
-   numbered list/table, showing for each:
-   - the **name** + label,
-   - the **panel of models** (`panel` / analysis_models),
-   - the **orchestrator / judge** (`judge`, the "Fuse with" model),
-   - the default `reasoning_effort`,
-   - the **`cost_tier`** (€ / €€ / €€€) so the user picks cost-aware (it's RELATIVE — real cost
-     scales with prompt size, reasoning effort and web usage).
-
-   Include all presets (typically: Quality, Budget, maths, medecine, code, code-eco, perso).
+1. **List the configs.** Call **`fusion_list`**. Present **every** preset returned as a **full TABLE**
+   (one row per preset; columns: **#**, **preset**, **est. cost** `~$low–$high` (from
+   `cost_estimate.low`/`.high`), **panel**, **judge/orchestrator**, **`reasoning_effort`**). **ALWAYS
+   render this full table at the moment you ask the user to choose** — even if it was shown earlier in
+   the conversation, and even when you recommend one preset: **never reduce it to just the
+   recommendation**. The cost is an estimated RANGE per run (floor = little web, ceiling = full
+   `max_tool_calls` web budget); it also scales with prompt size (`cost_estimate.usd_per_prompt_token`)
+   and reasoning effort — say it's indicative, not a quote.
 
 2. **Recommend + ask for the preset.** Mark (⭐) the preset best suited to the user's task (with its
    `cost_tier`), then ask the user to choose (number or name) and **WAIT**. Never pick for them — skip
