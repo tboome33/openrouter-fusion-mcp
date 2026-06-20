@@ -426,10 +426,11 @@ server.registerTool(
     title: "Fusion (list configs)",
     description:
       "List the available Fusion configurations — for each: name, label, panel (analysis_models), " +
-      "judge (orchestrator/'Fuse with'), reasoning_effort, temperature, description. ALWAYS call this " +
-      "FIRST whenever the user wants to use Fusion without explicitly naming a preset. Present EVERY " +
-      "preset WITH its models and its orchestrator, then ask the user to choose the preset — do NOT " +
-      "pick one for them. After they pick, ask the reasoning effort, then the temperature, then call " +
+      "judge (orchestrator/'Fuse with'), reasoning_effort, temperature, cost_tier, description. ALWAYS " +
+      "call this FIRST whenever the user wants to use Fusion without explicitly naming a preset himself " +
+      "(you proposing one does NOT count). Present EVERY preset WITH its models, its orchestrator and its " +
+      "cost_tier; RECOMMEND the one best suited to the task (mark it ⭐) — but do NOT pick for them: ask " +
+      "the user to choose. After they pick, ask the reasoning effort, then the temperature, then call " +
       "fusion_start with preset:'<name>'.",
     inputSchema: {},
   },
@@ -469,10 +470,12 @@ server.registerTool(
             {
               presets: list,
               usage:
-                "Présente la liste AVEC le cost_tier, fais choisir le preset → reasoning → température, " +
-                "puis lance fusion_start puis poll fusion_result. cost_tier = indicateur RELATIF " +
-                "(€/€€/€€€) ; le coût réel monte avec la taille du prompt, le reasoning et l'usage web " +
-                "(un run lourd peut dépasser 0,50–1 $).",
+                "Présente la liste AVEC le cost_tier, RECOMMANDE le preset le plus adapté à la tâche (⭐), " +
+                "fais CHOISIR le preset à l'utilisateur → reasoning → température, puis lance fusion_start " +
+                "puis poll fusion_result. Ne lance JAMAIS direct sans avoir fait choisir (sauf si " +
+                "l'utilisateur a lui-même nommé le preset). cost_tier = indicateur RELATIF (€/€€/€€€) ; le " +
+                "coût réel monte avec la taille du prompt, le reasoning et l'usage web (un run lourd peut " +
+                "dépasser 0,50–1 $).",
             },
             null,
             2

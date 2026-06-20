@@ -25,7 +25,9 @@ When the user wants to use OpenRouter Fusion but has **not** explicitly named a 
 
    Include all presets (typically: Quality, Budget, maths, medecine, code, code-eco, perso).
 
-2. **Ask for the preset** (number or name), then **WAIT**.
+2. **Recommend + ask for the preset.** Mark (⭐) the preset best suited to the user's task (with its
+   `cost_tier`), then ask the user to choose (number or name) and **WAIT**. Never pick for them — skip
+   this only if the user named the preset **themselves** (you proposing one does not count).
 
 3. **Ask for the reasoning effort** — offer `xhigh · high · medium · low · minimal · none`, recalling
    the chosen preset's default. Then **WAIT**.

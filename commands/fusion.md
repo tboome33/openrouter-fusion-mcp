@@ -16,8 +16,9 @@ scales with prompt size, reasoning effort and web usage.
 > `fusion_start` is gated by a permission confirmation in Claude Code (the user approves each paid
 > launch). You don't manage it — the harness prompts.
 
-**2. Ask for the preset** (number or name), then **WAIT**. (If the user already named one in the
-request, skip this.)
+**2. Recommend + ask for the preset.** Mark (⭐) the preset best suited to the request (with its
+`cost_tier`), then ask "Which preset (number or name)?" and **WAIT**. Never pick for them. (Skip this
+ONLY if the user named the preset **themselves** in the request — you proposing one does not count.)
 
 **3. Ask for the reasoning effort** — `xhigh · high · medium · low · minimal · none`, recalling the
 chosen preset's default. Then **WAIT**.
