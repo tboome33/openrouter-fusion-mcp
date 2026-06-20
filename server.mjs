@@ -45,6 +45,14 @@ const DEFAULT_REASONING = (process.env.OPENROUTER_FUSION_DEFAULT_REASONING || "h
 const QUALITY_PANEL = ["anthropic/claude-opus-4.8", "openai/gpt-5.5", "google/gemini-3.1-pro-preview"];
 const QUALITY_JUDGE = "anthropic/claude-opus-4.8";
 
+// Cap on the panel/judge web_search/web_fetch loop (OpenRouter range 1-16, their default 8).
+// We default LOWER (3): it bounds web steps so models "must return text", which both cuts cost and
+// avoids the failure where the judge keeps tool-calling and never emits a final synthesis.
+const DEFAULT_MAX_TOOL_CALLS = (() => {
+  const n = parseInt(process.env.OPENROUTER_FUSION_MAX_TOOL_CALLS || "", 10);
+  return Number.isFinite(n) && n >= 1 && n <= 16 ? n : 3;
+})();
+
 const REASONING_LEVELS = ["xhigh", "high", "medium", "low", "minimal", "none"];
 
 // --- reasoning helpers -------------------------------------------------------
@@ -102,6 +110,10 @@ function normalizePreset(c, fallbackName) {
     openrouter_preset: openrouter_preset || null,
     reasoning_effort: normReasoning(c.reasoning_effort) || null,
     temperature: typeof c.temperature === "number" ? c.temperature : null,
+    max_tool_calls:
+      Number.isFinite(c.max_tool_calls) && c.max_tool_calls >= 1 && c.max_tool_calls <= 16
+        ? c.max_tool_calls
+        : null,
     system: c.system || null,
   };
 }
@@ -236,24 +248,24 @@ const PRESETS = buildPresets();
  * @param {string}    opts.prompt            The user question.
  * @param {string=}   opts.system            Optional system prompt.
  * @param {number=}   opts.temperature       Optional sampling temperature (omit = model default).
- * @param {boolean=}  opts.force             tool_choice "required" to force deliberation.
  * @param {string[]=} opts.analysis_models   Custom panel (Fusion plugin).
  * @param {string=}   opts.judge_model       Custom judge / orchestrator ("Fuse with") model.
  * @param {string=}   opts.orchestrator      Outer model (server-tool form). Usually null.
  * @param {string=}   opts.reasoning_effort  xhigh|high|medium|low|minimal|none.
  * @param {string=}   opts.openrouter_preset Native OpenRouter fusion preset (e.g. general-budget).
+ * @param {number=}   opts.max_tool_calls    Cap the panel/judge web loop (1-16). Default DEFAULT_MAX_TOOL_CALLS.
  * @returns {Promise<string>}
  */
 async function callFusion({
   prompt,
   system,
   temperature,
-  force,
   analysis_models,
   judge_model,
   orchestrator,
   reasoning_effort,
   openrouter_preset,
+  max_tool_calls,
 }) {
   if (!API_KEY) {
     throw new Error(
@@ -270,35 +282,31 @@ async function callFusion({
   if (typeof temperature === "number") body.temperature = temperature;
   const reasoning = reasoningBody(reasoning_effort);
   if (reasoning) body.reasoning = reasoning;
+  const maxToolCalls =
+    Number.isFinite(max_tool_calls) && max_tool_calls >= 1 && max_tool_calls <= 16
+      ? max_tool_calls
+      : DEFAULT_MAX_TOOL_CALLS;
 
   if (orchestrator) {
     // Server-tool form: a custom outer model writes the final answer using fusion analysis.
     body.model = orchestrator;
-    const params = {};
+    const params = { max_tool_calls: maxToolCalls };
     if (analysis_models && analysis_models.length) params.analysis_models = analysis_models;
     if (judge_model) params.model = judge_model;
     if (openrouter_preset) params.preset = openrouter_preset;
     body.tools = [{ type: "openrouter:fusion", parameters: params }];
-    if (force) body.tool_choice = "required";
+    body.tool_choice = "required"; // the orchestrator must actually invoke the fusion tool
   } else {
     // Alias form: openrouter/fusion resolves an outer model; the judge synthesizes.
+    // IMPORTANT: do NOT set tool_choice:"required" here. It forces the outer model to emit a tool
+    // call (web_search) instead of the final text synthesis → content:null, a wasted paid run.
+    // Empirically verified 2026-06-19 (required → no text; no tool_choice + low max_tool_calls → text).
     body.model = "openrouter/fusion";
-    if (force) body.tool_choice = "required";
-    const fusion = { id: "fusion" };
-    let hasCfg = false;
-    if (analysis_models && analysis_models.length) {
-      fusion.analysis_models = analysis_models;
-      hasCfg = true;
-    }
-    if (judge_model) {
-      fusion.model = judge_model;
-      hasCfg = true;
-    }
-    if (openrouter_preset) {
-      fusion.preset = openrouter_preset;
-      hasCfg = true;
-    }
-    if (hasCfg) body.plugins = [fusion];
+    const fusion = { id: "fusion", max_tool_calls: maxToolCalls };
+    if (analysis_models && analysis_models.length) fusion.analysis_models = analysis_models;
+    if (judge_model) fusion.model = judge_model;
+    if (openrouter_preset) fusion.preset = openrouter_preset;
+    body.plugins = [fusion];
   }
 
   // One request attempt. Throws { retryable, msg } so the loop can retry transient 429/5xx.
@@ -375,7 +383,18 @@ async function callFusion({
   } else if (Array.isArray(choice?.content)) {
     answer = choice.content.map((p) => (typeof p === "string" ? p : p?.text || "")).join("");
   }
-  if (!answer) answer = JSON.stringify(data, null, 2);
+  if (!answer.trim()) {
+    // No final text — the outer/judge model ended on a tool call (e.g. web_search) instead of a
+    // synthesis. Surface a clear, typed error rather than dumping raw JSON the caller can't use.
+    const fr = data?.choices?.[0]?.finish_reason || "unknown";
+    const toolCall = (choice?.tool_calls && choice.tool_calls.length) || choice?.function_call;
+    throw new Error(
+      `Fusion returned no final text (finish_reason=${fr}${toolCall ? ", ended on a tool call" : ""}). ` +
+        `This is the 'judge emitted a web_search tool call instead of synthesizing' failure. ` +
+        `The server no longer forces tool_choice and caps max_tool_calls=${maxToolCalls}; ` +
+        `if it recurs, lower OPENROUTER_FUSION_MAX_TOOL_CALLS (or the preset's max_tool_calls) and retry.`
+    );
+  }
 
   // Compact usage/cost footer when available.
   const u = data?.usage;
@@ -422,6 +441,7 @@ server.registerTool(
       orchestrator: p.orchestrator || null,
       reasoning_effort: p.reasoning_effort || DEFAULT_REASONING,
       temperature: p.temperature == null ? "(défaut modèle)" : p.temperature,
+      max_tool_calls: p.max_tool_calls == null ? DEFAULT_MAX_TOOL_CALLS : p.max_tool_calls,
     }));
     return {
       content: [
@@ -501,9 +521,16 @@ server.registerTool(
         .optional()
         .describe("Override the config's panel."),
       judge_model: z.string().optional().describe("Override the config's judge/orchestrator."),
+      max_tool_calls: z
+        .number()
+        .int()
+        .min(1)
+        .max(16)
+        .optional()
+        .describe("Cap the panel/judge web_search/web_fetch loop (1-16). Default 3. Lower = cheaper, less web."),
     },
   },
-  async ({ prompt, preset, system, reasoning_effort, temperature, analysis_models, judge_model }) => {
+  async ({ prompt, preset, system, reasoning_effort, temperature, analysis_models, judge_model, max_tool_calls }) => {
     // Resolve the config FIRST. Only default to quality when preset is omitted; a provided-but-
     // unknown preset (typo, or a custom whose env var failed to load) is an error — never a
     // silent fallback to the most expensive built-in.
@@ -541,17 +568,23 @@ server.registerTool(
         : typeof cfg.temperature === "number"
         ? cfg.temperature
         : undefined;
+    const mtc =
+      typeof max_tool_calls === "number"
+        ? max_tool_calls
+        : typeof cfg.max_tool_calls === "number"
+        ? cfg.max_tool_calls
+        : undefined;
 
     callFusion({
       prompt,
       system: system || cfg.system || undefined,
       temperature: temp,
-      force: true,
       analysis_models: panel,
       judge_model: judge,
       orchestrator: orch,
       reasoning_effort: reff,
       openrouter_preset: oPreset,
+      max_tool_calls: mtc,
     }).then(
       (text) => jobs.set(id, { status: "done", result: text, ts: Date.now() }),
       (err) => jobs.set(id, { status: "error", error: String(err?.message || err), ts: Date.now() })
@@ -635,6 +668,7 @@ if (process.env.FUSION_DUMP_PRESETS) {
         judge: p.judge || (p.openrouter_preset ? "(openrouter)" : "(default)"),
         reasoning_effort: p.reasoning_effort,
         temperature: p.temperature,
+        max_tool_calls: p.max_tool_calls == null ? DEFAULT_MAX_TOOL_CALLS : p.max_tool_calls,
       },
     ])
   );
