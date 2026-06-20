@@ -41,10 +41,6 @@ const DEFAULT_REASONING = (process.env.OPENROUTER_FUSION_DEFAULT_REASONING || "h
   .trim()
   .toLowerCase();
 
-// Built-in "quality" panel — explicit so fusion_list can display models + judge.
-const QUALITY_PANEL = ["anthropic/claude-opus-4.8", "openai/gpt-5.5", "google/gemini-3.1-pro-preview"];
-const QUALITY_JUDGE = "anthropic/claude-opus-4.8";
-
 // Cap on the panel/judge web_search/web_fetch loop (OpenRouter range 1-16, their default 8).
 // We default LOWER (3): it bounds web steps so models "must return text", which both cuts cost and
 // avoids the failure where the judge keeps tool-calling and never emits a final synthesis.
@@ -165,9 +161,9 @@ function buildPresets() {
     name: "quality",
     label: "Quality",
     description:
-      "Panel frontier (Claude Opus + GPT + Gemini Pro), juge Opus. Comme l'onglet Quality d'OpenRouter.",
-    analysis_models: QUALITY_PANEL,
-    judge: QUALITY_JUDGE,
+      "Preset par défaut d'OpenRouter (« Quality ») — panel frontier maintenu par OpenRouter, juge Opus. Généraliste haut de gamme.",
+    analysis_models: null,
+    judge: null,
     orchestrator: null,
     openrouter_preset: null,
     reasoning_effort: DEFAULT_REASONING,
@@ -437,14 +433,21 @@ server.registerTool(
   async () => {
     // Rough RELATIVE cost tier from panel composition (a precise $ would mislead — real cost
     // scales with prompt size, reasoning effort and web usage). Frontier slugs = pricey.
-    // Heuristic, perishable list of "pricey/frontier" slug fragments — update when the panel
-    // evolves (a future gpt-6 / claude-opus-5 won't match → counted as cheap).
-    // `gemini[-\d.]*pro` matches both `gemini-pro` AND versioned `gemini-3.1-pro-preview`
-    // (but not the cheap `gemini-3.5-flash`).
-    const isFrontier = (m) => /opus|gpt-5|gemini[-\d.]*pro|grok|\bo3\b|sonnet/i.test(m || "");
+    // Heuristic, perishable list of "pricey/frontier" slug fragments — handles both pinned
+    // (gpt-5.5, gemini-3.1-pro) AND floating "latest" aliases (~openai/gpt-latest,
+    // ~anthropic/claude-opus-latest, ~anthropic/claude-fable-latest, ~google/gemini-pro-latest).
+    // `gemini[-\d.]*pro` matches gemini-pro(-latest) + gemini-3.1-pro but NOT gemini-flash.
+    // `gpt-latest` is frontier but `gpt-mini-latest` is not (it won't match `gpt-latest`).
+    // Update when the model lineup evolves.
+    const isFrontier = (m) =>
+      /opus|fable|grok|\bo3\b|sonnet|gpt-5|gpt-latest|gemini[-\d.]*pro/i.test(m || "");
     const costTier = (p) => {
-      if (p.openrouter_preset) return "€ (éco · choisi par OpenRouter)";
+      if (p.openrouter_preset)
+        return /budget|eco|cheap|flash|mini/i.test(p.openrouter_preset)
+          ? "€ (éco · OpenRouter)"
+          : "€€€ (OpenRouter)";
       const models = [...(p.analysis_models || []), p.judge].filter(Boolean);
+      if (!models.length) return "€€€ (frontier · défaut OpenRouter)"; // bare Quality default
       const n = models.filter(isFrontier).length;
       if (n === 0) return "€ (éco)";
       if (n <= 2) return "€€ (moyen)";

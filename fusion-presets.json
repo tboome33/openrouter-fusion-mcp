@@ -1,69 +1,71 @@
 {
-  "_doc": "Configs Fusion. RUNTIME = une variable d'env mcphub par config: OPENROUTER_FUSION_<NOM> = la valeur JSON de l'entrée (l'objet {...}, SANS la clé). 'quality' et 'budget' sont BUILT-IN dans server.mjs (pas besoin de variable d'env, listées ici pour doc). Chaque config: analysis_models (panel) + judge (orchestrateur/'Fuse with') + reasoning_effort (xhigh|high|medium|low|minimal|none) + temperature (null = défaut du modèle, ou un nombre 0-2) + system (optionnel).",
+  "_doc": "Configs Fusion (refonte 2026-06-19, inspirée du benchmark DRACO d'OpenRouter). RUNTIME = une variable d'env mcphub par config CUSTOM: OPENROUTER_FUSION_<NOM> = la valeur JSON de l'objet (sans la clé). 'quality' et 'budget' sont BUILT-IN dans server.mjs (presets natifs OpenRouter — pas de variable d'env, listés ici pour doc). Slugs '~…-latest' = alias flottants OpenRouter (auto-à-jour). Logique: juge = Opus partout (prouvé meilleur synthétiseur + plus fiable, cf DRACO + retours Reddit) ; max_tool_calls réglé par besoin web (recherche/médecine=8, code=4, maths=1) ; Fusion vise la RECHERCHE/CRITIQUE, pas l'écriture de code brut.",
   "quality": {
     "name": "quality",
     "label": "Quality",
-    "description": "BUILT-IN. Panel frontier (Claude Opus + GPT + Gemini Pro), juge Opus. Comme l'onglet Quality d'OpenRouter.",
-    "analysis_models": ["anthropic/claude-opus-4.8", "openai/gpt-5.5", "google/gemini-3.1-pro-preview"],
-    "judge": "anthropic/claude-opus-4.8",
+    "description": "BUILT-IN. Preset par défaut d'OpenRouter (« Quality ») — panel frontier maintenu par OpenRouter, juge Opus. Généraliste haut de gamme.",
     "reasoning_effort": "high",
     "temperature": null
   },
   "budget": {
     "name": "budget",
     "label": "Budget",
-    "description": "BUILT-IN. Panel économique CHOISI PAR OPENROUTER (preset natif general-budget). Comme l'onglet Budget.",
+    "description": "BUILT-IN. Preset natif OpenRouter (general-budget) — panel économique choisi par OpenRouter.",
     "openrouter_preset": "general-budget",
     "reasoning_effort": "medium",
     "temperature": null
   },
+  "research": {
+    "name": "research",
+    "label": "Research (deep)",
+    "description": "Recherche approfondie — config #1 du benchmark DRACO d'OpenRouter (Fable + GPT, juge Opus), web poussé. Le « au secours » deep-research.",
+    "analysis_models": ["~anthropic/claude-fable-latest", "~openai/gpt-latest"],
+    "judge": "~anthropic/claude-opus-latest",
+    "reasoning_effort": "high",
+    "temperature": null,
+    "max_tool_calls": 8
+  },
+  "research-eco": {
+    "name": "research-eco",
+    "label": "Research (éco)",
+    "description": "Recherche approfondie rapport qualité/prix — panel éco (Gemini Flash + Kimi + DeepSeek V4 Pro) jugé par Opus : ~1% du top DRACO à ~50% du coût. Juge Opus conservé (un juge éco = échecs « fusion failed »).",
+    "analysis_models": ["~google/gemini-flash-latest", "~moonshotai/kimi-latest", "deepseek/deepseek-v4-pro"],
+    "judge": "~anthropic/claude-opus-latest",
+    "reasoning_effort": "high",
+    "temperature": null,
+    "max_tool_calls": 8
+  },
   "maths": {
     "name": "maths",
     "label": "Mathématiques",
-    "description": "Raisonnement mathématique rigoureux — panel de modèles forts en maths/logique, juge solide.",
-    "analysis_models": ["openai/o3", "deepseek/deepseek-v4-pro", "qwen/qwen3.7-max", "google/gemini-3.1-pro-preview"],
-    "judge": "openai/gpt-5.5",
-    "reasoning_effort": "high",
+    "description": "Raisonnement mathématique rigoureux — panel de raisonneurs divers (o3 + GPT + Gemini Pro + DeepSeek V4), juge Opus. Web off (les maths se calculent).",
+    "analysis_models": ["openai/o3", "~openai/gpt-latest", "~google/gemini-pro-latest", "deepseek/deepseek-v4-pro"],
+    "judge": "~anthropic/claude-opus-latest",
+    "reasoning_effort": "xhigh",
     "temperature": null,
+    "max_tool_calls": 1,
     "system": "Tu es un expert en mathématiques. Raisonne étape par étape, explicite les hypothèses, vérifie chaque étape et les cas limites, et donne la réponse finale clairement avec la démonstration. Si les approches divergent ou si un point reste incertain, signale-le explicitement."
   },
   "medecine": {
     "name": "medecine",
     "label": "Médecine / Clinique",
-    "description": "Raisonnement clinique multi-modèles (panel frontier, juge prudent). Aide à la décision, PAS un avis médical définitif.",
-    "analysis_models": ["anthropic/claude-opus-4.8", "openai/gpt-5.5", "google/gemini-3.1-pro-preview", "x-ai/grok-4.3"],
-    "judge": "anthropic/claude-opus-4.8",
+    "description": "Raisonnement clinique multi-modèles (panel frontier, juge prudent Opus), web poussé pour citer les recommandations. Aide à la décision, PAS un avis médical définitif.",
+    "analysis_models": ["~anthropic/claude-opus-latest", "~openai/gpt-latest", "~google/gemini-pro-latest"],
+    "judge": "~anthropic/claude-opus-latest",
     "reasoning_effort": "high",
     "temperature": null,
-    "system": "Tu es un assistant de raisonnement clinique destiné à un professionnel de santé. Procède par diagnostic différentiel, cite les recommandations/guidelines pertinentes, signale les drapeaux rouges et les incertitudes, et distingue ce qui est établi de ce qui est hypothétique. Ne pose JAMAIS de diagnostic définitif ni de prescription : tu assistes la décision d'un clinicien, tu ne la remplaces pas. Réponds en français."
+    "max_tool_calls": 8,
+    "system": "Tu es un assistant de raisonnement clinique destiné à un professionnel de santé. Procède par diagnostic différentiel, cite les recommandations/guidelines pertinentes (avec sources), signale les drapeaux rouges et les incertitudes, et distingue ce qui est établi de ce qui est hypothétique. Ne pose JAMAIS de diagnostic définitif ni de prescription : tu assistes la décision d'un clinicien, tu ne la remplaces pas. Réponds en français."
   },
   "code": {
     "name": "code",
-    "label": "Code (qualité)",
-    "description": "Programmation — panel top-code (GLM 5.2 + Opus 4.8 + GPT-5.5 + DeepSeek V4), juge Opus.",
-    "analysis_models": ["z-ai/glm-5.2", "anthropic/claude-opus-4.8", "openai/gpt-5.5", "deepseek/deepseek-v4-pro"],
-    "judge": "anthropic/claude-opus-4.8",
+    "label": "Code (architecture/revue)",
+    "description": "Architecture, revue de code et best-practices (PAS pour écrire du code brut — cf blog OpenRouter : Fusion n'est pas un drop-in coding). Panel top-code + juge Opus.",
+    "analysis_models": ["~openai/gpt-latest", "~anthropic/claude-opus-latest", "deepseek/deepseek-v4-pro", "z-ai/glm-5.2"],
+    "judge": "~anthropic/claude-opus-latest",
     "reasoning_effort": "high",
     "temperature": null,
-    "system": "Tu es un ingénieur logiciel senior. Donne du code correct, idiomatique et complet ; explique les choix, signale les bugs, cas limites, risques de sécurité et hypothèses. Préfère des solutions simples et testables. Si les approches divergent, compare-les."
-  },
-  "code-eco": {
-    "name": "code-eco",
-    "label": "Code (éco)",
-    "description": "Programmation rapport qualité/prix — panel cheap-strong (GLM 5.2 + DeepSeek V4 + Kimi K2.7-code + Qwen3.7-max), juge GLM 5.2 (top SWE-bench à ~1/6 du coût).",
-    "analysis_models": ["z-ai/glm-5.2", "deepseek/deepseek-v4-pro", "moonshotai/kimi-k2.7-code", "qwen/qwen3.7-max"],
-    "judge": "z-ai/glm-5.2",
-    "reasoning_effort": "high",
-    "temperature": null,
-    "system": "Tu es un ingénieur logiciel senior. Donne du code correct, idiomatique et complet ; explique les choix, signale bugs, cas limites et risques de sécurité. Préfère des solutions simples et testables."
-  },
-  "perso": {
-    "name": "perso",
-    "label": "Perso (value)",
-    "description": "Panel personnel rapport qualité/prix, 4 éditeurs différents (GLM 5.2 + MiniMax M3 + Kimi K2.6 + Gemini 3.5 Flash), juge GLM 5.2.",
-    "analysis_models": ["z-ai/glm-5.2", "minimax/minimax-m3", "moonshotai/kimi-k2.6", "google/gemini-3.5-flash"],
-    "judge": "z-ai/glm-5.2",
-    "reasoning_effort": "high",
-    "temperature": null
+    "max_tool_calls": 4,
+    "system": "Tu es un architecte logiciel senior. Pour une question d'architecture, de revue ou de bonnes pratiques : compare les approches, signale bugs/cas limites/risques de sécurité, cite des sources/standards quand pertinent. Pour de la génération de code brut, recommande plutôt un seul modèle spécialisé. Préfère des solutions simples et testables."
   }
 }
