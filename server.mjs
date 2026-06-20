@@ -91,6 +91,7 @@ function normalizePreset(c, fallbackName) {
   let judge = c.judge || c.judge_model;
   const orchestrator = c.orchestrator || undefined;
   let openrouter_preset = c.openrouter_preset || c.preset || undefined;
+  let max_tool_calls = c.max_tool_calls;
   if (Array.isArray(c.tools)) {
     // Accept the OpenRouter docs shape (model/tools/parameters) too.
     const t = c.tools.find((x) => String(x?.type || "").includes("fusion"));
@@ -98,6 +99,7 @@ function normalizePreset(c, fallbackName) {
     if (!analysis_models && Array.isArray(p.analysis_models)) analysis_models = p.analysis_models;
     if (p.model) judge = judge || p.model;
     if (p.preset) openrouter_preset = openrouter_preset || p.preset;
+    if (max_tool_calls == null && p.max_tool_calls != null) max_tool_calls = p.max_tool_calls;
   }
   judge = judge || c.model;
   return {
@@ -111,8 +113,8 @@ function normalizePreset(c, fallbackName) {
     reasoning_effort: normReasoning(c.reasoning_effort) || null,
     temperature: typeof c.temperature === "number" ? c.temperature : null,
     max_tool_calls:
-      Number.isFinite(c.max_tool_calls) && c.max_tool_calls >= 1 && c.max_tool_calls <= 16
-        ? c.max_tool_calls
+      Number.isFinite(max_tool_calls) && max_tool_calls >= 1 && max_tool_calls <= 16
+        ? max_tool_calls
         : null,
     system: c.system || null,
   };
@@ -434,7 +436,11 @@ server.registerTool(
   async () => {
     // Rough RELATIVE cost tier from panel composition (a precise $ would mislead — real cost
     // scales with prompt size, reasoning effort and web usage). Frontier slugs = pricey.
-    const isFrontier = (m) => /opus|gpt-5|gemini-3\.1-pro|gemini-pro|grok|\bo3\b|sonnet/i.test(m || "");
+    // Heuristic, perishable list of "pricey/frontier" slug fragments — update when the panel
+    // evolves (a future gpt-6 / claude-opus-5 won't match → counted as cheap).
+    // `gemini[-\d.]*pro` matches both `gemini-pro` AND versioned `gemini-3.1-pro-preview`
+    // (but not the cheap `gemini-3.5-flash`).
+    const isFrontier = (m) => /opus|gpt-5|gemini[-\d.]*pro|grok|\bo3\b|sonnet/i.test(m || "");
     const costTier = (p) => {
       if (p.openrouter_preset) return "€ (éco · choisi par OpenRouter)";
       const models = [...(p.analysis_models || []), p.judge].filter(Boolean);

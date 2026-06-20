@@ -3,8 +3,7 @@ node_modules/
 *.log
 *.mcpb
 .smart-env/
-.nas-tmp/
+.nas-tmp*
 .vault-meta/
 perso-config.json
-.nas-tmp-review*.txt
 .claude/settings.local.json

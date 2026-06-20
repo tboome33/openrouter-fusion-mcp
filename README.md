@@ -26,8 +26,18 @@ fusion_start({ prompt, preset:"quality" }) → { job_id }
 fusion_result({ job_id }) → answer   (re-call while {status:"running"})
 ```
 
-`fusion_start` forces the deliberation pipeline (`tool_choice:"required"`). Per-call overrides:
-`preset`, `reasoning_effort`, `temperature`, `analysis_models`, `judge_model`, `system`.
+`fusion_start` runs the `openrouter/fusion` alias pipeline and caps the panel/judge web loop
+(`max_tool_calls`, default 3) so the judge returns a final **text** synthesis instead of ending on a
+`web_search` tool call. Per-call overrides: `preset`, `reasoning_effort`, `temperature`,
+`analysis_models`, `judge_model`, `max_tool_calls`, `system`.
+
+> Note: the server intentionally does **not** send `tool_choice:"required"` on the alias form — that
+> forces the model to emit a tool call (web_search) instead of synthesizing (`content:null`, a wasted
+> paid run). The orchestrator/server-tool form does set it (it must invoke the fusion tool).
+
+`fusion_list` also returns a relative **`cost_tier`** (€/€€/€€€) per config so you can choose
+cost-aware — it scales with the number of frontier models in the panel (real cost also rises with
+prompt size, reasoning effort and web usage).
 
 ## Configs (Quality / Budget / Custom)
 
@@ -42,7 +52,7 @@ Mirrors OpenRouter's "Model Fusion" UI tabs. Two are **built-in** in `server.mjs
 
 Each config carries `analysis_models` (panel) · `judge` (orchestrator) · `reasoning_effort`
 (`xhigh`\|`high`\|`medium`\|`low`\|`minimal`\|`none`, default `high`) · `temperature` (`null` =
-model default, or `0–2`) · optional `system`.
+model default, or `0–2`) · `max_tool_calls` (1–16, caps the web loop; default 3) · optional `system`.
 
 ### Configuring — one env var per config
 
@@ -58,7 +68,7 @@ OPENROUTER_FUSION_PERSO    = {...}
 
 - `fusion-presets.json` — canonical, documented copy of all configs.
 - `fusion-env-vars.json` — the exact compact values to paste into the mcphub env (one per config).
-- Extra vars: `OPENROUTER_API_KEY` (an **inference** key with credit), `OPENROUTER_FUSION_DEFAULT_REASONING`.
+- Extra vars: `OPENROUTER_API_KEY` (an **inference** key with credit), `OPENROUTER_FUSION_DEFAULT_REASONING`, `OPENROUTER_FUSION_MAX_TOOL_CALLS` (global default web-loop cap, default 3).
 - Legacy `OPENROUTER_FUSION_PRESETS` (single map) and `OPENROUTER_FUSION_PERSO_CONFIG` are still read for backward-compat.
 
 Diagnostic: `FUSION_DUMP_PRESETS=1 node server.mjs` prints the resolved configs and exits.
