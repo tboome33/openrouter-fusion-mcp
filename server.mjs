@@ -12,7 +12,7 @@
  *   - <named> : any number of custom configs, one ENV VAR each:
  *                 OPENROUTER_FUSION_<NAME> = {"label":..,"analysis_models":[..],"judge":..,
  *                                            "reasoning_effort":"high","temperature":0.7,"system":..}
- *               e.g. OPENROUTER_FUSION_MATHS, OPENROUTER_FUSION_MEDECINE, OPENROUTER_FUSION_CODE...
+ *               e.g. OPENROUTER_FUSION_MATHS, OPENROUTER_FUSION_MEDICINE, OPENROUTER_FUSION_CODE...
  *
  * Each config carries: analysis_models (panel) · judge (orchestrator / "Fuse with") ·
  * reasoning_effort (xhigh|high|medium|low|minimal|none, default high) · temperature

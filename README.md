@@ -101,7 +101,7 @@ community feedback. The judge is **Opus 4.8 everywhere**; `max_tool_calls = 8` e
 | `research` ⭐ | Opus 4.8 + GPT‑5.5 + Gemini Pro + DeepSeek V4 | Opus 4.8 | high | ~$0.07–1.03 |
 | `research-eco` ⭐ | Gemini Flash + Kimi + DeepSeek V4 Pro | Opus 4.8 | high | ~$0.04–0.47 |
 | `maths` | GPT‑5.5 + Gemini Pro + DeepSeek V4 + GLM 5.2 | Opus 4.8 | xhigh | ~$0.06–0.82 |
-| `medecine` | Opus 4.8 + GPT‑5.5 + Gemini Pro | Opus 4.8 | high | ~$0.07–1.00 |
+| `medicine` | Opus 4.8 + GPT‑5.5 + Gemini Pro | Opus 4.8 | high | ~$0.07–1.00 |
 | `code` | GPT‑5.5 + Opus 4.8 + DeepSeek V4 + GLM 5.2 | Opus 4.8 | high | ~$0.06–0.98 |
 
 - `research` mirrors the DRACO 68.3% config. The #1 (69.0%) uses **Fable**, which is gated on most accounts
@@ -111,7 +111,7 @@ community feedback. The judge is **Opus 4.8 everywhere**; `max_tool_calls = 8` e
   coder — per the OpenRouter blog). For raw code, use a single specialized model.
 
 > **Which presets are active?** `quality` and `budget` work out-of-the-box on *any* install. The custom
-> presets (`research`, `research-eco`, `maths`, `medecine`, `code`) need their `OPENROUTER_FUSION_<NAME>`
+> presets (`research`, `research-eco`, `maths`, `medicine`, `code`) need their `OPENROUTER_FUSION_<NAME>`
 > env var — **the plugin (install B) ships all five in its `.mcp.json`**, so they're available immediately.
 > For a bare `npx`/MCPHub install, paste the values from [`fusion-env-vars.json`](fusion-env-vars.json) into
 > the client's `env`. `fusion_list` only ever advertises presets that are actually loaded, so the selector
@@ -245,7 +245,7 @@ npx @anthropic-ai/mcpb pack   # prompts the user for their OpenRouter key on ins
 
 ```jsonc
 { "prompt": "Explain ridge vs lasso vs elastic net.", "preset": "research" }
-{ "prompt": "Differential diagnoses for this case…", "preset": "medecine", "reasoning_effort": "xhigh" }
+{ "prompt": "Differential diagnoses for this case…", "preset": "medicine", "reasoning_effort": "xhigh" }
 ```
 
 ### Notes & troubleshooting
@@ -301,7 +301,7 @@ retours communautaires. Juge = **Opus 4.8 partout** ; `max_tool_calls = 8` parto
 | `research` ⭐ | Opus 4.8 + GPT‑5.5 + Gemini Pro + DeepSeek V4 | Opus 4.8 | high | ~$0.07–1.03 |
 | `research-eco` ⭐ | Gemini Flash + Kimi + DeepSeek V4 Pro | Opus 4.8 | high | ~$0.04–0.47 |
 | `maths` | GPT‑5.5 + Gemini Pro + DeepSeek V4 + GLM 5.2 | Opus 4.8 | xhigh | ~$0.06–0.82 |
-| `medecine` | Opus 4.8 + GPT‑5.5 + Gemini Pro | Opus 4.8 | high | ~$0.07–1.00 |
+| `medicine` | Opus 4.8 + GPT‑5.5 + Gemini Pro | Opus 4.8 | high | ~$0.07–1.00 |
 | `code` | GPT‑5.5 + Opus 4.8 + DeepSeek V4 + GLM 5.2 | Opus 4.8 | high | ~$0.06–0.98 |
 
 - `research` = la config DRACO 68.3 %. La #1 (69,0 %) utilise **Fable**, restreint sur la plupart des comptes
@@ -311,7 +311,7 @@ retours communautaires. Juge = **Opus 4.8 partout** ; `max_tool_calls = 8` parto
   un codeur drop-in — cf blog OpenRouter). Pour du code brut, un seul modèle spécialisé.
 
 > **Quels presets sont actifs ?** `quality` et `budget` marchent out-of-the-box sur *toute* installation.
-> Les presets custom (`research`, `research-eco`, `maths`, `medecine`, `code`) nécessitent leur variable
+> Les presets custom (`research`, `research-eco`, `maths`, `medicine`, `code`) nécessitent leur variable
 > `OPENROUTER_FUSION_<NOM>` — **le plugin (installation B) embarque les cinq dans son `.mcp.json`**, donc ils
 > sont disponibles immédiatement. Pour une installation `npx`/MCPHub nue, colle les valeurs de
 > [`fusion-env-vars.json`](fusion-env-vars.json) dans l'`env` du client. `fusion_list` n'annonce que les
@@ -445,7 +445,7 @@ npx @anthropic-ai/mcpb pack   # demande la clé OpenRouter à l'utilisateur à l
 
 ```jsonc
 { "prompt": "Explique ridge vs lasso vs elastic net.", "preset": "research" }
-{ "prompt": "Diagnostics différentiels pour ce cas…", "preset": "medecine", "reasoning_effort": "xhigh" }
+{ "prompt": "Diagnostics différentiels pour ce cas…", "preset": "medicine", "reasoning_effort": "xhigh" }
 ```
 
 ### Notes & dépannage

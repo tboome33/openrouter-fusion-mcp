@@ -46,8 +46,8 @@
     "max_tool_calls": 8,
     "system": "Tu es un expert en mathématiques. Raisonne étape par étape, explicite les hypothèses, vérifie chaque étape et les cas limites, et donne la réponse finale clairement avec la démonstration. Si les approches divergent ou si un point reste incertain, signale-le explicitement."
   },
-  "medecine": {
-    "name": "medecine",
+  "medicine": {
+    "name": "medicine",
     "label": "Médecine / Clinique",
     "description": "Raisonnement clinique multi-modèles (panel frontier, juge prudent Opus), web poussé pour citer les recommandations. Aide à la décision, PAS un avis médical définitif.",
     "analysis_models": ["~anthropic/claude-opus-latest", "openai/gpt-5.5", "~google/gemini-pro-latest"],
